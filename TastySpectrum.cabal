@@ -11,7 +11,7 @@ cabal-version:      3.0
 --   http://haskell.org/cabal/users-guide/
 --
 -- The name of the package.
-name:               TastySpectrum
+name:               tasty-spectrum
 
 -- The package version.
 -- See the Haskell package versioning policy (PVP) for standards
@@ -53,6 +53,21 @@ extra-doc-files:    CHANGELOG.md
 common warnings
     ghc-options: -Wall
 
+library
+    -- Base language which the package is written in.
+    default-language: GHC2021
+    exposed-modules: Test.Tasty.Ingredients.Spectrum
+    hs-source-dirs: app/
+
+    build-depends:    base ^>=4.18,
+                      tasty,
+                      containers,
+                      tagged,
+                      stm,
+                      hpc,
+                      ghc
+
+
 test-suite TastySpectrum-test
     -- Import common warning flags.
     import:           warnings
@@ -80,7 +95,4 @@ test-suite TastySpectrum-test
                       tasty,
                       tasty-quickcheck,
                       tasty-hunit,
-                      containers,
-                      stm,
-                      hpc,
-                      ghc
+                      tasty-spectrum
