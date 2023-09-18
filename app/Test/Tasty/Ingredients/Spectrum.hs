@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module Test.Tasty.Ingredients.Spectrum
     (
         testSpectrum
@@ -13,7 +14,7 @@ import Test.Tasty.Options
 
 import Trace.Hpc.Reflect ( clearTix, examineTix )
 import Trace.Hpc.Mix ( readMix, Mix(..), MixEntry )
-import Trace.Hpc.Tix ( TixModule(..), Tix(Tix) )
+import Trace.Hpc.Tix ( TixModule(..), Tix(Tix), tixModuleName, tixModuleTixs )
 
 import Control.Concurrent.STM ( atomically, readTVar, retry, TVar )
 import qualified Test.Tasty.Runners as TR
@@ -56,6 +57,14 @@ think about data format..?
 
 -}
 
+simpleRep :: TixModule -> (String, [Integer])
+simpleRep tm = (tixModuleName tm, tixModuleTixs tm)
+
+specResRow :: SpectrumResult -> (String, Bool, [(String, [Integer])])
+specResRow (SpecRes{..})=
+  (test_name, test_result, map simpleRep tix_module)
+
+
 
 testSpectrum :: Ingredient
 testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum)] $
@@ -67,20 +76,16 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum)] $
          print $ length ts
          r <- forM ts $ \(t_name,test) -> do
             clearTix
+            -- TODO: Make timeout configureable.
             t_res <- checkTastyTree 5000 test
             print t_res
             Tix res <- examineTix
-            w_mixes <- addMixes res
-            mapM_ (\(_,_,r) -> print (map snd $ filter (\(i,_) -> i /= 0) r)) w_mixes
+            -- w_mixes <- addMixes res
+            -- mapM_ (\(_,_,r) -> print (map snd $ filter (\(i,_) -> i /= 0) r)) w_mixes
             return (SpecRes res t_res t_name)
          return $ all test_result r
 
 
-addMixes :: [TixModule] -> IO [(TixModule, Mix, [(Integer, MixEntry)])]
-addMixes tixes = do
-     mixes <- mapM (readMix [".hpc"] . Right) tixes
-     let f t@(TixModule _ _ _ tx) m@(Mix _ _ _ _ mes) = (t,m, zip tx mes)
-     return (zipWith f tixes mixes)
 
 unfoldTastyTests :: TestTree -> [(String, TestTree)]
 unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs'}) mempty
