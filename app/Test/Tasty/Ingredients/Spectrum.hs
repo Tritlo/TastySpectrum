@@ -20,7 +20,13 @@ import Control.Concurrent.STM ( atomically, readTVar, retry, TVar )
 import qualified Test.Tasty.Runners as TR
 import qualified Data.IntMap as IntMap
 
+import qualified Data.Set as Set
+import Data.Set (Set)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
+
 import Control.Monad
+import Data.List (intercalate)
 
 
 
@@ -41,30 +47,16 @@ data SpectrumResult = SpecRes {
         }
 
 
-{-
-                    test status (t_res). A string? Leave it bool for now.
-                       ↓
-                   | pass ratio?  | e1 | e2 <- mix_file location
- test_name <-   t1 |   y (1/1)    | 1  | 27 <- number of evals
-                t2 |   y          | 0  | 17
-                t3 |   n (0/1)    | 17 | 5
-                t4 |   n          | 5  | 0
-                q1 |   n (4/5)    | 7  | 5
-                        ↑
-                      from amount of tests, if < 1 then fail
-
-think about data format..?
-
--}
-
-simpleRep :: TixModule -> (String, [Integer])
-simpleRep tm = (tixModuleName tm, tixModuleTixs tm)
 
 specResRow :: SpectrumResult -> (String, Bool, [(String, [Integer])])
 specResRow (SpecRes{..})=
   (test_name, test_result, map simpleRep tix_module)
+  where simpleRep :: TixModule -> (String, [Integer])
+        simpleRep tm = (tixModuleName tm, tixModuleTixs tm)
 
 
+third :: (a, b, c) -> c
+third (_,_,c) = c
 
 testSpectrum :: Ingredient
 testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum)] $
@@ -73,17 +65,56 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum)] $
       GetTestSpectrum False -> Nothing
       GetTestSpectrum True -> Just $ do
          let ts = unfoldTastyTests tree
-         print $ length ts
-         r <- forM ts $ \(t_name,test) -> do
+         print "Generating spectrum..."
+         spectrums <- forM ts $ \(t_name,test) -> do
             clearTix
             -- TODO: Make timeout configureable.
             t_res <- checkTastyTree 5000 test
-            print t_res
             Tix res <- examineTix
-            -- w_mixes <- addMixes res
-            -- mapM_ (\(_,_,r) -> print (map snd $ filter (\(i,_) -> i /= 0) r)) w_mixes
             return (SpecRes res t_res t_name)
-         return $ all test_result r
+         let all_mods = Set.unions $ map ((Set.fromList . map fst . third) . specResRow) spectrums
+         mixes <- Map.fromList <$>
+                      mapM (\m ->(m,) . (\(Mix fp _ _ _ mes) -> (fp,map fst mes))
+                              -- TODO: let users change the directory here
+                          <$> readMix [".hpc"] (Left m)) (Set.toList all_mods)
+         let toCanonicalExpr fp hp = fp ++ ':' : show hp
+             all_exprs = Set.fromList $ concatMap f $ Map.elems mixes
+               where f (fp, hpcs) = map (toCanonicalExpr fp) hpcs
+             toFullRow sp = (tn, tr, Map.fromList $ concatMap rowToFull tre)
+               where (tn, tr, tre) = specResRow sp
+                     rowToFull (mod, tix) = zip (map (toCanonicalExpr fp) hpcs)
+                                             $ filter (/= 0) tix
+                        where (fp, hpcs) = mixes Map.! mod
+             toRes sp = (t_name, t_res, map fwd $ Set.elems all_exprs )
+              where (t_name, t_res, spec) = toFullRow sp
+                    fwd k = Map.findWithDefault 0 k spec
+
+{-
+                    test status (t_res). A string? Leave it bool for now.
+                       ↓
+                   , pass ratio?  , e1 , e2 <- mix_file location
+ test_name <-   t1 ,   y (1/1)    , 1  , 27 <- number of evals
+                t2 ,   y          , 0  , 17
+                t3 ,   n (0/1)    , 17 , 5
+                t4 ,   n          , 5  , 0
+                q1 ,   n (4/5)    , 7  , 5
+                        ↑
+                      from amount of tests, if < 1 then fail
+
+think about data format..?
+
+-}
+         let header = "test_name, test_result, " ++ intercalate ", " (map show $ Set.elems all_exprs)
+         let printFunc (s,b,e) =
+                show s ++ ", " ++ show b  ++ ", " ++ intercalate ", " (map show e)
+             csv = header:map (printFunc . toRes) spectrums
+
+         -- TODO: make confiugreable, CSV or JSON or whatevert
+         let fp = "spectrum.csv"
+         print $ "Done! Wrote spectrum to " ++ fp
+         writeFile fp $ intercalate "\n" csv ++ "\n"
+
+         return $ all test_result spectrums
 
 
 
