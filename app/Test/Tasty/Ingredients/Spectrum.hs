@@ -27,6 +27,7 @@ import Data.Map.Strict (Map)
 
 import Control.Monad
 import Data.List (intercalate)
+import Options.Applicative (metavar)
 
 
 
@@ -39,6 +40,26 @@ instance IsOption GetTestSpectrum where
     optionName = return "get-spectrum"
     optionHelp = return "Runs the test and produces a spectrum"
     optionCLParser = flagCLParser Nothing (GetTestSpectrum True)
+
+newtype HpcDir = HpcDir String
+  deriving (Eq, Ord, Typeable)
+
+instance IsOption HpcDir where
+    defaultValue = HpcDir ".hpc"
+    parseValue = Just . HpcDir
+    optionName = return "hpc-dir"
+    optionHelp = return "Directory where HPC mix files are located"
+    optionCLParser = mkOptionCLParser (metavar "HPCDIRECTORY")
+
+data SpectrumOut = PrintSpectrum 
+                 | SaveSpectrum { spectrum_loc :: String}
+
+instance IsOption SpectrumOut where
+    defaultValue = PrintSpectrum
+    parseValue = Just . SaveSpectrum 
+    optionName = return "spectrum-out"
+    optionHelp = return "Spectrum output file"
+    optionCLParser = mkOptionCLParser (metavar "CSVOUT")
 
 data SpectrumResult = SpecRes {
           tix_module :: [TixModule],
@@ -59,24 +80,28 @@ third :: (a, b, c) -> c
 third (_,_,c) = c
 
 testSpectrum :: Ingredient
-testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum)] $
+testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
+                            Option (Proxy :: Proxy Timeout),
+                            Option (Proxy :: Proxy HpcDir),
+                            Option (Proxy :: Proxy SpectrumOut)] $
   \opts tree ->
     case lookupOption opts of
       GetTestSpectrum False -> Nothing
       GetTestSpectrum True -> Just $ do
          let ts = unfoldTastyTests tree
-         print "Generating spectrum..."
+             timeout :: Timeout
+             timeout = lookupOption opts
+             hpc_dir = case lookupOption opts of
+                            HpcDir str -> str
          spectrums <- forM ts $ \(t_name,test) -> do
             clearTix
-            -- TODO: Make timeout configureable.
-            t_res <- checkTastyTree 5000 test
+            t_res <- checkTastyTree timeout test
             Tix res <- examineTix
             return (SpecRes res t_res t_name)
          let all_mods = Set.unions $ map ((Set.fromList . map fst . third) . specResRow) spectrums
          mixes <- Map.fromList <$>
                       mapM (\m ->(m,) . (\(Mix fp _ _ _ mes) -> (fp,map fst mes))
-                              -- TODO: let users change the directory here
-                          <$> readMix [".hpc"] (Left m)) (Set.toList all_mods)
+                          <$> readMix [hpc_dir] (Left m)) (Set.toList all_mods)
          let toCanonicalExpr fp hp = fp ++ ':' : show hp
              all_exprs = Set.fromList $ concatMap f $ Map.elems mixes
                where f (fp, hpcs) = map (toCanonicalExpr fp) hpcs
@@ -92,12 +117,12 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum)] $
 {-
                     test status (t_res). A string? Leave it bool for now.
                        ↓
-                   , pass ratio?  , e1 , e2 <- mix_file location
- test_name <-   t1 ,   y (1/1)    , 1  , 27 <- number of evals
-                t2 ,   y          , 0  , 17
-                t3 ,   n (0/1)    , 17 , 5
-                t4 ,   n          , 5  , 0
-                q1 ,   n (4/5)    , 7  , 5
+         test_name, test_result  , e1 , e2 <- mix_file location
+ test_name <-   t1,   y (1/1)    , 1  , 27 <- number of evals
+                t2,   y          , 0  , 17
+                t3,   n (0/1)    , 17 , 5
+                t4,   n          , 5  , 0
+                q1,   n (4/5)    , 7  , 5
                         ↑
                       from amount of tests, if < 1 then fail
 
@@ -109,10 +134,11 @@ think about data format..?
                 show s ++ ", " ++ show b  ++ ", " ++ intercalate ", " (map show e)
              csv = header:map (printFunc . toRes) spectrums
 
-         -- TODO: make confiugreable, CSV or JSON or whatevert
-         let fp = "spectrum.csv"
-         print $ "Done! Wrote spectrum to " ++ fp
-         writeFile fp $ intercalate "\n" csv ++ "\n"
+         case lookupOption opts of
+            PrintSpectrum -> do
+                void $ mapM putStrLn csv
+            SaveSpectrum fp -> 
+                writeFile fp $ intercalate "\n" csv ++ "\n"
 
          return $ all test_result spectrums
 
@@ -124,13 +150,13 @@ unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs'}) mempty
     fs' opts name test = [(name, TR.PlusTestOptions (opts <>) $ TR.SingleTest name test)]
 
 
-checkTastyTree :: Int -> TestTree -> IO Bool
+checkTastyTree :: Timeout -> TestTree -> IO Bool
 checkTastyTree timeout test =
   case tryIngredients [TestReporter [] (\_ _ -> Just reportFun)] mempty with_timeout of
     Just act -> act
     _ -> return False
   where
-    with_timeout = localOption (mkTimeout (fromIntegral timeout)) test
+    with_timeout = localOption timeout test
     waitUntilDone :: TVar TR.Status -> IO Bool
     waitUntilDone status_var = atomically $ do
       status <- readTVar status_var
