@@ -51,12 +51,12 @@ instance IsOption HpcDir where
     optionHelp = return "Directory where HPC mix files are located"
     optionCLParser = mkOptionCLParser (metavar "HPCDIRECTORY")
 
-data SpectrumOut = PrintSpectrum 
+data SpectrumOut = PrintSpectrum
                  | SaveSpectrum { spectrum_loc :: String}
 
 instance IsOption SpectrumOut where
     defaultValue = PrintSpectrum
-    parseValue = Just . SaveSpectrum 
+    parseValue = Just . SaveSpectrum
     optionName = return "spectrum-out"
     optionHelp = return "Spectrum output file"
     optionCLParser = mkOptionCLParser (metavar "CSVOUT")
@@ -75,9 +75,10 @@ specResRow (SpecRes{..})=
   where simpleRep :: TixModule -> (String, [Integer])
         simpleRep tm = (tixModuleName tm, tixModuleTixs tm)
 
-
-third :: (a, b, c) -> c
-third (_,_,c) = c
+-- TODO:
+-- mix :: MixFile -> [Tree ([Int], HpcPos)]
+-- gather the suspicsions for all tests for that pos and then the sub-positions
+-- using the "contains" from the mix library.
 
 testSpectrum :: Ingredient
 testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
@@ -98,7 +99,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
             t_res <- checkTastyTree timeout test
             Tix res <- examineTix
             return (SpecRes res t_res t_name)
-         let all_mods = Set.unions $ map ((Set.fromList . map fst . third) . specResRow) spectrums
+         let all_mods = Set.unions $ map ((Set.fromList . map fst . (\(_,_,c) -> c)) . specResRow) spectrums
          mixes <- Map.fromList <$>
                       mapM (\m ->(m,) . (\(Mix fp _ _ _ mes) -> (fp,map fst mes))
                           <$> readMix [hpc_dir] (Left m)) (Set.toList all_mods)
@@ -137,7 +138,7 @@ think about data format..?
          case lookupOption opts of
             PrintSpectrum -> do
                 void $ mapM putStrLn csv
-            SaveSpectrum fp -> 
+            SaveSpectrum fp ->
                 writeFile fp $ intercalate "\n" csv ++ "\n"
 
          return $ all test_result spectrums
