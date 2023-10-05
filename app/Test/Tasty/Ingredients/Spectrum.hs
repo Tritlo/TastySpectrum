@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
 module Test.Tasty.Ingredients.Spectrum
     (
         testSpectrum
