@@ -14,7 +14,10 @@ import Data.Set (Set)
 import qualified Data.Graph as Graph
 import Data.Graph (Tree(..), Forest)
 import Data.List (transpose)
+import qualified Data.List as L
 import Data.Function (on)
+import qualified Data.Map.Strict as Map
+import Data.Map (Map)
     
 
 csvToForest :: FilePath -> IO ([(String, Bool)], Forest Label)
@@ -59,10 +62,13 @@ instance Ord Label where
 
 genForest :: [Label] -> Forest Label
 genForest all_nodes = map toTreeF roots_and_children
-  where nodeSet :: Set Label
-        nodeSet = Set.fromList all_nodes
+  where nodeSet :: Map String (Set Label)
+        nodeSet = Map.fromAscList $
+                       map (\g@(h:_) -> (loc_name h, Set.fromList g)) $
+                       L.groupBy ((==) `on` loc_name) $
+                       L.sortBy (compare `on` loc_name) $  all_nodes
         containedBy n = (n,ns'')
-            where ns' = Set.delete n nodeSet
+            where ns' = Set.delete n (nodeSet Map.! (loc_name n))
                   ns'' = Set.filter (insideHpcPos (loc_pos n) . loc_pos) ns'
         contained :: [(Label, Set Label)]
         contained = map containedBy all_nodes
