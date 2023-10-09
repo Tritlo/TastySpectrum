@@ -55,17 +55,28 @@ common warnings
 
 library
     -- Base language which the package is written in.
-    exposed-modules: Test.Tasty.Ingredients.Spectrum
+    exposed-modules: Test.Tasty.Ingredients.Spectrum,
+                     Test.Tasty.Ingredients.Spectrum.CSVToForest
     hs-source-dirs: app/
 
-    build-depends:    base ^>=4.14,
+    build-depends:    base >=4 && < 5,
                       tasty,
                       containers,
                       tagged,
                       stm,
                       hpc,
                       optparse-applicative,
+                      text,
                       ghc
+
+executable mix-csv-to-tree
+  default-language: Haskell2010
+  main-is: app/Main.hs
+  build-depends: base >= 4 && < 5,
+                 tasty-spectrum,
+                 hpc,
+                 containers,
+                 optparse-applicative
 
 
 test-suite TastySpectrum-test
