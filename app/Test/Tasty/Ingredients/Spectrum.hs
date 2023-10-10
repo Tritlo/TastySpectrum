@@ -58,7 +58,7 @@ data SpectrumOut = PrintSpectrum
 instance IsOption SpectrumOut where
     defaultValue = PrintSpectrum
     parseValue = Just . SaveSpectrum
-    optionName = return "spectrum-out"
+    optionName = return "output"
     optionHelp = return "Spectrum output file"
     optionCLParser = mkOptionCLParser (metavar "CSVOUT")
 
@@ -131,9 +131,9 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
 think about data format..?
 
 -}
-         let header = "test_name, test_result, " ++ intercalate ", " (map show $ Set.elems all_exprs)
+         let header = "test_name,test_result," ++ intercalate "," (map show $ Set.elems all_exprs)
          let printFunc (s,b,e) =
-                show s ++ ", " ++ show b  ++ ", " ++ intercalate ", " (map show e)
+                show s ++ "," ++ show b  ++ "," ++ intercalate "," (map show e)
              csv = header:map (printFunc . toRes) spectrums
 
          case lookupOption opts of
