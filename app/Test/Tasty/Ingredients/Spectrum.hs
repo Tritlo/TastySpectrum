@@ -58,7 +58,7 @@ data SpectrumOut = PrintSpectrum
 instance IsOption SpectrumOut where
     defaultValue = PrintSpectrum
     parseValue = Just . SaveSpectrum
-    optionName = return "output"
+    optionName = return "spectrum-out"
     optionHelp = return "Spectrum output file"
     optionCLParser = mkOptionCLParser (metavar "CSVOUT")
 
