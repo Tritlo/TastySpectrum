@@ -75,12 +75,13 @@ newtype SparseSpectrum = SparseSpectrum Bool
   deriving (Eq, Ord, Typeable)
 
 instance IsOption SparseSpectrum where
-    defaultValue = SparseSpectrum False
-    parseValue = fmap SparseSpectrum . safeReadBool
-    optionName = return "sparse-spectrum"
-    optionHelp = return $  "Create a *sparse spectrum*, keeping only "++
-                           "expressions that are evaluated in at least one test."
-    optionCLParser = flagCLParser Nothing (SparseSpectrum True)
+    defaultValue = SparseSpectrum True
+    parseValue = fmap (SparseSpectrum . not) . safeReadBool
+    optionName = return "non-sparse-spectrum"
+    optionHelp = return $  "Create a *non-sparse spectrum*, keeping all "++
+                           "expressions, even those that are never evaluated "++
+                           "in any test."
+    optionCLParser = flagCLParser Nothing (SparseSpectrum False)
 
 
 
