@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE BangPatterns#-}
+{-# LANGUAGE BangPatterns #-}
 module Test.Tasty.Ingredients.Spectrum
     (
         testSpectrum
@@ -103,8 +103,6 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
              hpc_dir = case lookupOption opts of
                             HpcDir str -> str
 
-         -- we Just keep a running track of the modules used
-         all_mods_ref <- newIORef (Map.empty :: Map String IntSet)
          spectrums <- forM ts $ \(t_name,test) -> do
             clearTix
             t_res <- checkTastyTree timeout test
@@ -114,34 +112,33 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
             -- zeroes when we generate the output.
             let simpleRep :: TixModule -> (String, IntMap Integer)
                 simpleRep tm = (tixModuleName tm, im)
-                    where tmt = tixModuleTixs tm
-                          im =  IM.fromAscList $ filter ((/= 0) . snd) $
-                                    zip [0.. ] tmt
-                new_map = Map.fromList $ filter (not . IM.null . snd)
-                                       $ map simpleRep res
-                touched = if sparseSpectrum
-                          then Map.map IM.keysSet new_map
-                          else Map.map (const IS.empty) new_map
-
-            all_mods_ref `modifyIORef'` (Map.unionWith IS.union touched)
+                    where im = IM.fromAscList $ 
+                               filter ((/= 0) . snd) $
+                               zip [0.. ] $
+                               tixModuleTixs tm
+                -- The bang here is very important, ensuring we evaluate the
+                -- new_map here. Otherwise we quickly run out of memory on big,
+                -- since we're keeping everything around.
+                !new_map = Map.fromList $
+                           filter (not . IM.null . snd) $ map simpleRep res
             return (t_name, t_res, new_map)
 
-         -- all_mods <- (Set.toList . Map.keysSet) <$> readIORef all_mods_ref
-         touched <- readIORef all_mods_ref
-         let all_mods = Set.toList $ Map.keysSet touched
-         all_mixes <- Map.fromList <$>
-                  mapM (\m ->(m,) . (\(Mix fp _ _ _ mes) -> (fp,map fst mes))
-                       <$> readMix [hpc_dir] (Left m)) all_mods
-         -- We only care about locations that have been touched at any point. 
-         let mixes = 
-                if sparseSpectrum
-                then Map.mapWithKey (\k (fp, hpcs) ->
-                         let touched_inds = touched Map.! k
-                         in (fp, map snd $ 
-                                 filter (flip IS.member touched_inds . fst) $
-                                 zip [0..] hpcs)) all_mixes
-                else all_mixes
-             toCanonicalExpr file hpc_pos = file ++ ':' : show hpc_pos
+         let touched = Map.unionsWith IS.union $
+                       map (\(_,_,m) -> Map.map IM.keysSet m) $
+                       spectrums
+         -- We only care about locations that have been touched at any point,
+         -- unless we're doing a non-sparse spectrum.
+         mixes <- fmap Map.fromList <$>
+                    traverse (\(m, touched_inds) ->
+                      (m,) . (\(Mix fp _ _ _ mes) ->
+                        (fp, let hpcs = map fst mes
+                             in if sparseSpectrum
+                                then map snd $
+                                    filter (flip IS.member touched_inds . fst) $
+                                    zip [0..] hpcs
+                                else hpcs))
+                       <$> readMix [hpc_dir] (Left m)) $ Map.assocs touched
+         let toCanonicalExpr file hpc_pos = file ++ ':' : show hpc_pos
              all_exprs = concatMap to_strings $ Map.elems mixes
                where to_strings (filename, hpcs) =
                         map (toCanonicalExpr filename) hpcs
