@@ -116,7 +116,6 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                             Just im -> map (flip (IM.findWithDefault 0) im) [0.. (length hpcs)]
                             Nothing -> replicate (length hpcs) 0
                         where im = Map.findWithDefault IM.empty mod tix_maps
-
 {-
                     test status (t_res). A string? Leave it bool for now.
                        ↓
@@ -133,15 +132,17 @@ think about data format..?
 
 -}
          let header = "test_name,test_result," ++ intercalate "," (map show all_exprs)
-         let printFunc (s,b,e) =
+             printFunc (s,b,e) =
                 show s ++ "," ++ show b  ++ "," ++ intercalate "," (map show e)
-             csv = header:map (printFunc . toRes) spectrums
+             csv = map (printFunc . toRes) spectrums
 
          case lookupOption opts of
             PrintSpectrum -> do
-                void $ mapM putStrLn csv
-            SaveSpectrum fp ->
-                writeFile fp $ intercalate "\n" csv ++ "\n"
+                putStrLn header
+                mapM_ putStrLn csv
+            SaveSpectrum fp -> do
+                writeFile fp header
+                mapM_ (appendFile fp . (++ "\n")) csv
 
          return $ all (\(_,r,_) -> r) spectrums
 
