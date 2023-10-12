@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE BangPatterns#-}
 module Test.Tasty.Ingredients.Spectrum
     (
         testSpectrum
@@ -26,9 +27,14 @@ import Data.Set (Set)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 
+import Data.IntMap (IntMap)
+import qualified Data.IntMap.Strict as IM
+
 import Control.Monad
 import Data.List (intercalate)
 import Options.Applicative (metavar)
+
+import Data.IORef
 
 
 
@@ -62,24 +68,12 @@ instance IsOption SpectrumOut where
     optionHelp = return "Spectrum output file"
     optionCLParser = mkOptionCLParser (metavar "CSVOUT")
 
-data SpectrumResult = SpecRes {
-          tix_module :: [TixModule],
-          test_result :: Bool,
-          test_name :: String
-        }
 
 
-
-specResRow :: SpectrumResult -> (String, Bool, [(String, [Integer])])
-specResRow (SpecRes{..})=
-  (test_name, test_result, map simpleRep tix_module)
-  where simpleRep :: TixModule -> (String, [Integer])
-        simpleRep tm = (tixModuleName tm, tixModuleTixs tm)
-
--- TODO:
--- mix :: MixFile -> [Tree ([Int], HpcPos)]
--- gather the suspicsions for all tests for that pos and then the sub-positions
--- using the "contains" from the mix library.
+simpleRep :: TixModule -> (String, IntMap Integer)
+simpleRep tm = (tixModuleName tm, im)
+   where tmt = tixModuleTixs tm
+         im =  IM.fromAscList $ filter ((/= 0) . snd) $ zip [0.. ] tmt
 
 testSpectrum :: Ingredient
 testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
@@ -95,26 +89,33 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
              timeout = lookupOption opts
              hpc_dir = case lookupOption opts of
                             HpcDir str -> str
+
+         -- all_tix_ref <- newIORef (Map.empty :: Map String (IntMap Integer))
+         all_mods_ref <- newIORef (Set.empty :: Set String)
          spectrums <- forM ts $ \(t_name,test) -> do
             clearTix
             t_res <- checkTastyTree timeout test
             Tix res <- examineTix
-            return (SpecRes res t_res t_name)
-         let all_mods = Set.unions $ map ((Set.fromList . map fst . (\(_,_,c) -> c)) . specResRow) spectrums
+            let new_map = Map.fromList $ filter (not . IM.null . snd) $ (map simpleRep res)
+            all_mods_ref `modifyIORef'` (Set.union (Map.keysSet new_map))
+            return (t_name, t_res, new_map)
+
+         all_mods <- Set.toList <$> readIORef all_mods_ref
+
          mixes <- Map.fromList <$>
                       mapM (\m ->(m,) . (\(Mix fp _ _ _ mes) -> (fp,map fst mes))
-                          <$> readMix [hpc_dir] (Left m)) (Set.toList all_mods)
-         let toCanonicalExpr fp hp = fp ++ ':' : show hp
-             all_exprs = Set.fromList $ concatMap f $ Map.elems mixes
-               where f (fp, hpcs) = map (toCanonicalExpr fp) hpcs
-             toFullRow sp = (tn, tr, Map.fromList $ concatMap rowToFull tre)
-               where (tn, tr, tre) = specResRow sp
-                     rowToFull (mod, tix) = zip (map (toCanonicalExpr fp) hpcs)
-                                             $ filter (/= 0) tix
-                        where (fp, hpcs) = mixes Map.! mod
-             toRes sp = (t_name, t_res, map fwd $ Set.elems all_exprs )
-              where (t_name, t_res, spec) = toFullRow sp
-                    fwd k = Map.findWithDefault 0 k spec
+                          <$> readMix [hpc_dir] (Left m)) all_mods
+         let toCanonicalExpr file hpc_pos = file ++ ':' : show hpc_pos
+             all_exprs = concatMap to_strings $ Map.elems mixes
+               where to_strings (fp, hpcs) = map (toCanonicalExpr fp) hpcs
+
+             toRes (t_name, t_res, tix_maps) = (t_name, t_res, concatMap eRes $ Map.assocs mixes)
+              where -- eRes :: (String, (String, [HpcPos])) -> [Integer]
+                    eRes (mod, (_,hpcs)) = 
+                        case tix_maps Map.!? mod of
+                            Just im -> map (flip (IM.findWithDefault 0) im) [0.. (length hpcs)]
+                            Nothing -> replicate (length hpcs) 0
+                        where im = Map.findWithDefault IM.empty mod tix_maps
 
 {-
                     test status (t_res). A string? Leave it bool for now.
@@ -131,7 +132,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
 think about data format..?
 
 -}
-         let header = "test_name,test_result," ++ intercalate "," (map show $ Set.elems all_exprs)
+         let header = "test_name,test_result," ++ intercalate "," (map show all_exprs)
          let printFunc (s,b,e) =
                 show s ++ "," ++ show b  ++ "," ++ intercalate "," (map show e)
              csv = header:map (printFunc . toRes) spectrums
@@ -142,7 +143,7 @@ think about data format..?
             SaveSpectrum fp ->
                 writeFile fp $ intercalate "\n" csv ++ "\n"
 
-         return $ all test_result spectrums
+         return $ all (\(_,r,_) -> r) spectrums
 
 
 
