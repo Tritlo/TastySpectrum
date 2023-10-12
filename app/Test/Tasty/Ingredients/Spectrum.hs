@@ -78,7 +78,8 @@ instance IsOption SparseSpectrum where
     defaultValue = SparseSpectrum False
     parseValue = fmap SparseSpectrum . safeReadBool
     optionName = return "sparse-spectrum"
-    optionHelp = return "Create a sparse spectrum. Incompatible with tree-view."
+    optionHelp = return $  "Create a *sparse spectrum*, keeping only "++
+                           "expressions that are evaluated in at least one test."
     optionCLParser = flagCLParser Nothing (SparseSpectrum True)
 
 
