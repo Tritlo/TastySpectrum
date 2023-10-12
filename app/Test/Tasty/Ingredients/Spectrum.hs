@@ -30,6 +30,9 @@ import Data.Map.Strict (Map)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap.Strict as IM
 
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IS
+
 import Control.Monad
 import Data.List (intercalate)
 import Options.Applicative (metavar)
@@ -68,13 +71,24 @@ instance IsOption SpectrumOut where
     optionHelp = return "Spectrum output file"
     optionCLParser = mkOptionCLParser (metavar "CSVOUT")
 
+newtype SparseSpectrum = SparseSpectrum Bool
+  deriving (Eq, Ord, Typeable)
+
+instance IsOption SparseSpectrum where
+    defaultValue = SparseSpectrum False
+    parseValue = fmap SparseSpectrum . safeReadBool
+    optionName = return "sparse-spectrum"
+    optionHelp = return "Create a sparse spectrum. Incompatible with tree-view."
+    optionCLParser = flagCLParser Nothing (SparseSpectrum True)
+
 
 
 testSpectrum :: Ingredient
 testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                             Option (Proxy :: Proxy Timeout),
                             Option (Proxy :: Proxy HpcDir),
-                            Option (Proxy :: Proxy SpectrumOut)] $
+                            Option (Proxy :: Proxy SpectrumOut),
+                            Option (Proxy :: Proxy SparseSpectrum)] $
   \opts tree ->
     case lookupOption opts of
       GetTestSpectrum False -> Nothing
@@ -82,11 +96,13 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
          let ts = unfoldTastyTests tree
              timeout :: Timeout
              timeout = lookupOption opts
+             sparseSpectrum = case lookupOption opts of
+                                SparseSpectrum s -> s
              hpc_dir = case lookupOption opts of
                             HpcDir str -> str
 
          -- we Just keep a running track of the modules used
-         all_mods_ref <- newIORef (Set.empty :: Set String)
+         all_mods_ref <- newIORef (Map.empty :: Map String IntSet)
          spectrums <- forM ts $ \(t_name,test) -> do
             clearTix
             t_res <- checkTastyTree timeout test
@@ -101,15 +117,29 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                     zip [0.. ] tmt
                 new_map = Map.fromList $ filter (not . IM.null . snd)
                                        $ map simpleRep res
-            all_mods_ref `modifyIORef'` (Set.union (Map.keysSet new_map))
+                touched = if sparseSpectrum
+                          then Map.map IM.keysSet new_map
+                          else Map.map (const IS.empty) new_map
+
+            all_mods_ref `modifyIORef'` (Map.unionWith IS.union touched)
             return (t_name, t_res, new_map)
 
-         all_mods <- Set.toList <$> readIORef all_mods_ref
-
-         mixes <- Map.fromList <$>
+         -- all_mods <- (Set.toList . Map.keysSet) <$> readIORef all_mods_ref
+         touched <- readIORef all_mods_ref
+         let all_mods = Set.toList $ Map.keysSet touched
+         all_mixes <- Map.fromList <$>
                   mapM (\m ->(m,) . (\(Mix fp _ _ _ mes) -> (fp,map fst mes))
                        <$> readMix [hpc_dir] (Left m)) all_mods
-         let toCanonicalExpr file hpc_pos = file ++ ':' : show hpc_pos
+         -- We only care about locations that have been touched at any point. 
+         let mixes = 
+                if sparseSpectrum
+                then Map.mapWithKey (\k (fp, hpcs) ->
+                         let touched_inds = touched Map.! k
+                         in (fp, map snd $ 
+                                 filter (flip IS.member touched_inds . fst) $
+                                 zip [0..] hpcs)) all_mixes
+                else all_mixes
+             toCanonicalExpr file hpc_pos = file ++ ':' : show hpc_pos
              all_exprs = concatMap to_strings $ Map.elems mixes
                where to_strings (filename, hpcs) =
                         map (toCanonicalExpr filename) hpcs
@@ -119,8 +149,12 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
               where -- eRes :: (String, (String, [HpcPos])) -> [Integer]
                     eRes (mod, (_,hpcs)) = 
                         case tix_maps Map.!? mod of
-                            Just im -> map (flip (IM.findWithDefault 0) im)
-                                        [0.. (length hpcs)]
+                            Just im ->
+                                map (flip (IM.findWithDefault 0) im) $
+                                if sparseSpectrum
+                                then let t_inds = touched Map.! mod
+                                     in IS.toList $ t_inds
+                                else [0.. (length hpcs)]
                             Nothing -> replicate (length hpcs) 0
 
              header = "test_name,test_result," ++
@@ -150,7 +184,7 @@ think about data format..?
                 putStrLn header
                 mapM_ putStrLn csv
             SaveSpectrum fp -> do
-                writeFile fp header
+                writeFile fp (header ++ "\n")
                 mapM_ (appendFile fp . (++ "\n")) csv
 
          return $ all (\(_,r,_) -> r) spectrums
