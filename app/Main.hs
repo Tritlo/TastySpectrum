@@ -22,8 +22,8 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to convert to
 opts :: ParserInfo Config
 opts = info (config <**> helper)
         (fullDesc <>
-         progDesc "Convert a tasty spectrum CSV file TARGET to a tree" <>
-         header "mix-csv-to-tree")
+         progDesc ("Print the tasty spectrum in TARGET to a tree-view.")  <>
+         header "spec-csv-to-tree")
 
 main :: IO ()
 main = do Conf {..} <- execParser opts

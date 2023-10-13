@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE BangPatterns #-}
 module Test.Tasty.Ingredients.Spectrum
     (
         testSpectrum
@@ -26,9 +27,17 @@ import Data.Set (Set)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 
+import Data.IntMap (IntMap)
+import qualified Data.IntMap.Strict as IM
+
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IS
+
 import Control.Monad
 import Data.List (intercalate)
 import Options.Applicative (metavar)
+
+import Data.IORef
 
 
 
@@ -62,30 +71,26 @@ instance IsOption SpectrumOut where
     optionHelp = return "Spectrum output file"
     optionCLParser = mkOptionCLParser (metavar "CSVOUT")
 
-data SpectrumResult = SpecRes {
-          tix_module :: [TixModule],
-          test_result :: Bool,
-          test_name :: String
-        }
+newtype SparseSpectrum = SparseSpectrum Bool
+  deriving (Eq, Ord, Typeable)
+
+instance IsOption SparseSpectrum where
+    defaultValue = SparseSpectrum True
+    parseValue = fmap (SparseSpectrum . not) . safeReadBool
+    optionName = return "non-sparse-spectrum"
+    optionHelp = return $  "Create a *non-sparse spectrum*, keeping all "++
+                           "expressions, even those that are never evaluated "++
+                           "in any test."
+    optionCLParser = flagCLParser Nothing (SparseSpectrum False)
 
 
-
-specResRow :: SpectrumResult -> (String, Bool, [(String, [Integer])])
-specResRow (SpecRes{..})=
-  (test_name, test_result, map simpleRep tix_module)
-  where simpleRep :: TixModule -> (String, [Integer])
-        simpleRep tm = (tixModuleName tm, tixModuleTixs tm)
-
--- TODO:
--- mix :: MixFile -> [Tree ([Int], HpcPos)]
--- gather the suspicsions for all tests for that pos and then the sub-positions
--- using the "contains" from the mix library.
 
 testSpectrum :: Ingredient
 testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                             Option (Proxy :: Proxy Timeout),
                             Option (Proxy :: Proxy HpcDir),
-                            Option (Proxy :: Proxy SpectrumOut)] $
+                            Option (Proxy :: Proxy SpectrumOut),
+                            Option (Proxy :: Proxy SparseSpectrum)] $
   \opts tree ->
     case lookupOption opts of
       GetTestSpectrum False -> Nothing
@@ -93,31 +98,74 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
          let ts = unfoldTastyTests tree
              timeout :: Timeout
              timeout = lookupOption opts
+             sparseSpectrum = case lookupOption opts of
+                                SparseSpectrum s -> s
              hpc_dir = case lookupOption opts of
                             HpcDir str -> str
+
          spectrums <- forM ts $ \(t_name,test) -> do
             clearTix
             t_res <- checkTastyTree timeout test
             Tix res <- examineTix
-            return (SpecRes res t_res t_name)
-         let all_mods = Set.unions $ map ((Set.fromList . map fst . (\(_,_,c) -> c)) . specResRow) spectrums
-         mixes <- Map.fromList <$>
-                      mapM (\m ->(m,) . (\(Mix fp _ _ _ mes) -> (fp,map fst mes))
-                          <$> readMix [hpc_dir] (Left m)) (Set.toList all_mods)
-         let toCanonicalExpr fp hp = fp ++ ':' : show hp
-             all_exprs = Set.fromList $ concatMap f $ Map.elems mixes
-               where f (fp, hpcs) = map (toCanonicalExpr fp) hpcs
-             toFullRow sp = (tn, tr, Map.fromList $ concatMap rowToFull tre)
-               where (tn, tr, tre) = specResRow sp
-                     rowToFull (mod, tix) = zip (map (toCanonicalExpr fp) hpcs)
-                                             $ filter (/= 0) tix
-                        where (fp, hpcs) = mixes Map.! mod
-             toRes sp = (t_name, t_res, map fwd $ Set.elems all_exprs )
-              where (t_name, t_res, spec) = toFullRow sp
-                    fwd k = Map.findWithDefault 0 k spec
+            -- The results are usually quite sparse, so we use an IntMap here,
+            -- and only keep track of the non-zero values. We then re-infer the
+            -- zeroes when we generate the output.
+            let simpleRep :: TixModule -> (String, IntMap Integer)
+                simpleRep tm = (tixModuleName tm, im)
+                    where im = IM.fromAscList $ 
+                               filter ((/= 0) . snd) $
+                               zip [0.. ] $
+                               tixModuleTixs tm
+                -- The bang here is very important, ensuring we evaluate the
+                -- new_map here. Otherwise we quickly run out of memory on big,
+                -- since we're keeping everything around.
+                !new_map = Map.fromList $
+                           filter (not . IM.null . snd) $ map simpleRep res
+            return (t_name, t_res, new_map)
 
-{-
-                    test status (t_res). A string? Leave it bool for now.
+         let touched = Map.unionsWith IS.union $
+                       map (\(_,_,m) -> Map.map IM.keysSet m) $
+                       spectrums
+         -- We only care about locations that have been touched at any point,
+         -- unless we're doing a non-sparse spectrum.
+         mixes <- fmap Map.fromList <$>
+                    traverse (\(m, touched_inds) ->
+                      (m,) . (\(Mix fp _ _ _ mes) ->
+                        (fp, let hpcs = map fst mes
+                             in if sparseSpectrum
+                                then map snd $
+                                    filter (flip IS.member touched_inds . fst) $
+                                    zip [0..] hpcs
+                                else hpcs))
+                       <$> readMix [hpc_dir] (Left m)) $ Map.assocs touched
+         let toCanonicalExpr file hpc_pos = file ++ ':' : show hpc_pos
+             all_exprs = concatMap to_strings $ Map.elems mixes
+               where to_strings (filename, hpcs) =
+                        map (toCanonicalExpr filename) hpcs
+
+             toRes (t_name, t_res, tix_maps) = 
+                (t_name, t_res, concatMap eRes $ Map.assocs mixes)
+              where -- eRes :: (String, (String, [HpcPos])) -> [Integer]
+                    eRes (mod, (_,hpcs)) = 
+                        case tix_maps Map.!? mod of
+                            Just im ->
+                                map (flip (IM.findWithDefault 0) im) $
+                                if sparseSpectrum
+                                then let t_inds = touched Map.! mod
+                                     in IS.toList $ t_inds
+                                else [0.. (length hpcs)]
+                            Nothing -> replicate (length hpcs) 0
+
+             header = "test_name,test_result," ++
+                       intercalate "," (map show all_exprs)
+             printFunc (s,b,e) =
+                show s ++ "," ++
+                show b ++ "," ++
+                intercalate "," (map show e)
+             csv = map (printFunc . toRes) spectrums
+
+
+{-               test status (t_res). A string? Leave it bool for now.
                        ↓
          test_name, test_result  , e1 , e2 <- mix_file location
  test_name <-   t1,   y (1/1)    , 1  , 27 <- number of evals
@@ -127,34 +175,31 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                 q1,   n (4/5)    , 7  , 5
                         ↑
                       from amount of tests, if < 1 then fail
-
 think about data format..?
-
 -}
-         let header = "test_name,test_result," ++ intercalate "," (map show $ Set.elems all_exprs)
-         let printFunc (s,b,e) =
-                show s ++ "," ++ show b  ++ "," ++ intercalate "," (map show e)
-             csv = header:map (printFunc . toRes) spectrums
 
          case lookupOption opts of
             PrintSpectrum -> do
-                void $ mapM putStrLn csv
-            SaveSpectrum fp ->
-                writeFile fp $ intercalate "\n" csv ++ "\n"
+                putStrLn header
+                mapM_ putStrLn csv
+            SaveSpectrum fp -> do
+                writeFile fp (header ++ "\n")
+                mapM_ (appendFile fp . (++ "\n")) csv
 
-         return $ all test_result spectrums
+         return $ all (\(_,r,_) -> r) spectrums
 
 
 
 unfoldTastyTests :: TestTree -> [(String, TestTree)]
 unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs'}) mempty
-  where
-    fs' opts name test = [(name, TR.PlusTestOptions (opts <>) $ TR.SingleTest name test)]
+  where fs' opts name test = [(name, TR.PlusTestOptions (opts <>) $
+                                     TR.SingleTest name test)]
 
 
 checkTastyTree :: Timeout -> TestTree -> IO Bool
 checkTastyTree timeout test =
-  case tryIngredients [TestReporter [] (\_ _ -> Just reportFun)] mempty with_timeout of
+  case tryIngredients [TestReporter []
+                       (\_ _ -> Just reportFun)] mempty with_timeout of
     Just act -> act
     _ -> return False
   where
