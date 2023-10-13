@@ -46,8 +46,11 @@ csvToForest target_file = do
 
               test_results = map (\(n,r,_) -> (n,r)) parsed
               eval_results = transpose $ map (\(_,_,e) -> e) parsed
-
-              labeled = zipWith3 (\(s,l) i es-> Label s l i es) locs [0..] eval_results
+            
+              keepNonZero :: [Integer] -> [(Int,Integer)]
+              keepNonZero = filter ((/=0) . snd) . zip [0..]
+              labeled = zipWith3 (\(s,l) i es -> Label s l i $ keepNonZero es)
+                            locs [0..] eval_results
               forest = genForest labeled
           return (test_results, forest)
 
@@ -55,7 +58,7 @@ csvToForest target_file = do
 data Label = Label {loc_name :: String,
                     loc_pos :: HpcPos,
                     loc_index :: Int,
-                    loc_evals :: [Integer]}
+                    loc_evals :: [(Int,Integer)]}
 
 instance Show Label where
     show (Label {..}) = 
