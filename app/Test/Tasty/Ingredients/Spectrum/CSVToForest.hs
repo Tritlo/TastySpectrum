@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PatternGuards #-}
 module Test.Tasty.Ingredients.Spectrum.CSVToForest (
         Label(..),
         csvToForest) where
@@ -23,16 +24,23 @@ import Data.Map (Map)
 csvToForest :: FilePath -> IO ([(String, Bool)], Forest Label)
 csvToForest target_file = do
           f <- TIO.readFile target_file
-          let (h:rs) = map (T.splitOn $ T.pack ",") $ T.splitOn (T.pack "\n") f
+          let (h:rs) = T.splitOn (T.pack "\n") f
               (_:_:locs) = map ((\(fn,l) -> ( T.unpack $ T.drop 1 fn,
                                              read @HpcPos $ T.unpack $
                                                             T.dropEnd 1 $
                                                             T.drop 1 l))
-                                            . T.breakOn (T.pack ":") ) h
-              parseLine (t_name:t_res:evals) = Just  (read @String $ T.unpack t_name,
-                                                      read @Bool $ T.unpack t_res,
-                                                      map (read @Integer . T.unpack) evals)
-              parseLine _ = Nothing 
+                                            . T.breakOn (T.pack ":") ) $
+                                            (T.splitOn $ T.pack ",") h
+              -- We need to take care with test-names, as they might have
+              -- commas in them.
+              parseLine ln | (t_name,rs) <- (T.span (/= '"') . T.drop 1) ln,
+                             (_:t_res:evals) <- (T.splitOn $ T.pack ",") rs,
+                             n <- T.unpack t_name,
+                             b <- read @Bool $ T.unpack t_res,
+                             e <- map (read @Integer . T.unpack) evals
+                            = Just (n,b,e)
+                           | otherwise = Nothing
+
               parsed :: [(String, Bool, [Integer])]
               parsed = mapMaybe parseLine rs
 
@@ -40,7 +48,7 @@ csvToForest target_file = do
               eval_results = transpose $ map (\(_,_,e) -> e) parsed
 
               labeled = zipWith3 (\(s,l) i es-> Label s l i es) locs [0..] eval_results
-          let forest = genForest labeled
+              forest = genForest labeled
           return (test_results, forest)
 
 

@@ -190,6 +190,7 @@ think about data format..?
 
 
 
+-- TODO: Keeps some more names around
 unfoldTastyTests :: TestTree -> [(String, TestTree)]
 unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs'}) mempty
   where fs' opts name test = [(name, TR.PlusTestOptions (opts <>) $
