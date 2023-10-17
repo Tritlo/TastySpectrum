@@ -30,6 +30,13 @@ Use like: `cabal test --test-options "--get-spectrum --spectrum-out=./spectrum.c
 
 And to print a tree view of the expressions: `cabal run spec-csv-to-tree spectrum.csv`
 
+*Testing*: 
+
+We have a few [shelltests](https://github.com/simonmichael/shelltestrunner/tree/master), which you can run with:
+```sh
+shelltest test
+```
+
 ## Application to other Projects
 
 We assume you have a cabal project with a tasty test suite, that you can run with `cabal test all`.
