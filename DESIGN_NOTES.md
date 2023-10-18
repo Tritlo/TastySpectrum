@@ -38,3 +38,31 @@ Iff we'd outsource the locations by referring to the mix files, follow up tools 
 This would hinder writing a new tool or evaluation in e.g. Python. 
 
 We hope to provide the spectrums in the most-reusable way for other researchers, which is why we try to avoid the "`.mix`-barrier". 
+
+## Legacy: Ideas of different Spectrum Layout 
+
+Extracted from `Spectrum.hs`:
+
+```Haskell
+{-
+Legacy Comment: Ideas on CSV Design
+
+               test status (t_res). A string? Leave it bool for now.
+                       ↓
+         test_name, test_result  , e1 , e2 <- mix_file location
+ test_name <-   t1,   y (1/1)    , 1  , 27 <- number of evals
+                t2,   y          , 0  , 17
+                t3,   n (0/1)    , 17 , 5
+                t4,   n          , 5  , 0
+                q1,   n (4/5)    , 7  , 5
+                        ↑
+                      from amount of tests, if < 1 then fail
+think about data format..?
+-}
+```
+
+There are some elements we might want to represent that are currently (18-10-2023) not represented: 
+
+- Categories of tests: unit-tests, properties, golden tests ... 
+- More explicit test_results: How many counterexamples were found for a property ? Was the test failing, erroring, timeouting? 
+- Info on the expression, highlighting some relevant AST info
