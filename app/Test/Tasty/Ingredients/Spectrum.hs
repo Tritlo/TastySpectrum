@@ -169,7 +169,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                 show b ++ "," ++
                 intercalate "," (map show e)
              csv = map (printFunc . toRes) spectrums
-  	    -- Step 3.1: Print to Console or File, depending on args. 
+         -- Step 3.1: Print to Console or File, depending on args. 
          case lookupOption opts of
             PrintSpectrum -> do
                 putStrLn header
