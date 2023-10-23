@@ -84,7 +84,10 @@ instance IsOption SparseSpectrum where
     optionCLParser = flagCLParser Nothing (SparseSpectrum False)
 
 
-
+-- | Primary function of the module - enables the import at `defaultMainWithIngredients` for other tasty test projects.
+-- See the [Tasty Repository](https://github.com/UnkindPartition/tasty) for more information on ingredients.
+-- Important: running this spectrum will re-run all tests, which might take a time. Also, the resulting `.tix` file will not be representive of your whole test-suite. 
+-- If you need coverage information, you need to retrieve it from a different run. 
 testSpectrum :: Ingredient
 testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                             Option (Proxy :: Proxy Timeout),
@@ -95,15 +98,16 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
     case lookupOption opts of
       GetTestSpectrum False -> Nothing
       GetTestSpectrum True -> Just $ do
-         let ts = unfoldTastyTests tree
+         -- Step 0: Setup Tests, Arguments, Variables
+         let tests = unfoldTastyTests tree
              timeout :: Timeout
              timeout = lookupOption opts
              sparseSpectrum = case lookupOption opts of
                                 SparseSpectrum s -> s
              hpc_dir = case lookupOption opts of
                             HpcDir str -> str
-
-         spectrums <- forM ts $ \(t_name,test) -> do
+        -- Step 1: Delete Tix, Run every test in isolation, Retrieve resulting Tix per Test 
+         spectrums <- forM tests $ \(t_name,test) -> do
             clearTix
             t_res <- checkTastyTree timeout test
             Tix res <- examineTix
@@ -116,18 +120,18 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                filter ((/= 0) . snd) $
                                zip [0.. ] $
                                tixModuleTixs tm
-                -- The bang here is very important, ensuring we evaluate the
-                -- new_map here. Otherwise we quickly run out of memory on big,
-                -- since we're keeping everything around.
+                -- The bang here is very important, ensuring we evaluate the new_map here. 
+                -- Otherwise we quickly run out of memory on big projects & test-suites.
                 !new_map = Map.fromList $
                            filter (not . IM.null . snd) $ map simpleRep res
             return (t_name, t_res, new_map)
-
+        -- Step 1.1: Reduce the tix to only the touched ones.
+         -- We only care about locations that have been touched at any point,
+         -- unless we're doing a non-sparse spectrum.
          let touched = Map.unionsWith IS.union $
                        map (\(_,_,m) -> Map.map IM.keysSet m) $
                        spectrums
-         -- We only care about locations that have been touched at any point,
-         -- unless we're doing a non-sparse spectrum.
+         -- Step 2: Load all mix files from the specified HPC directory
          mixes <- fmap Map.fromList <$>
                     traverse (\(m, touched_inds) ->
                       (m,) . (\(Mix fp _ _ _ mes) ->
@@ -138,7 +142,9 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                     zip [0..] hpcs
                                 else hpcs))
                        <$> readMix [hpc_dir] (Left m)) $ Map.assocs touched
+         -- Step 2.1: Resolve the Mix indizes to "speaking names" of file+row+column 
          let toCanonicalExpr file hpc_pos = file ++ ':' : show hpc_pos
+         -- Step 3: Merge all results into a string in .csv style
              all_exprs = concatMap to_strings $ Map.elems mixes
                where to_strings (filename, hpcs) =
                         map (toCanonicalExpr filename) hpcs
@@ -163,21 +169,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                 show b ++ "," ++
                 intercalate "," (map show e)
              csv = map (printFunc . toRes) spectrums
-
-
-{-               test status (t_res). A string? Leave it bool for now.
-                       ↓
-         test_name, test_result  , e1 , e2 <- mix_file location
- test_name <-   t1,   y (1/1)    , 1  , 27 <- number of evals
-                t2,   y          , 0  , 17
-                t3,   n (0/1)    , 17 , 5
-                t4,   n          , 5  , 0
-                q1,   n (4/5)    , 7  , 5
-                        ↑
-                      from amount of tests, if < 1 then fail
-think about data format..?
--}
-
+  	    -- Step 3.1: Print to Console or File, depending on args. 
          case lookupOption opts of
             PrintSpectrum -> do
                 putStrLn header
@@ -188,16 +180,23 @@ think about data format..?
 
          return $ all (\(_,r,_) -> r) spectrums
 
-
-
+-- | Unfolds a test-collection into single tests. 
+-- The resulting tests are still TestTrees, due to tasty logic and keeping things runnable. 
 -- TODO: Keeps some more names around
-unfoldTastyTests :: TestTree -> [(String, TestTree)]
+unfoldTastyTests :: 
+  TestTree                 -- ^ A collection of Tasty Tests
+  -> [(String, TestTree)]  -- ^ A list of (TestName,Test) with single tests without sub-elements.
 unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs'}) mempty
   where fs' opts name test = [(name, TR.PlusTestOptions (opts <>) $
                                      TR.SingleTest name test)]
 
-
-checkTastyTree :: Timeout -> TestTree -> IO Bool
+-- | This function runs a single test - but a single test and a test-collection share the same type in tasty. 
+-- The result is the test-status. True on pass, false on fail or error.
+-- The "tix" are retrieved separately after this function was executed.  
+checkTastyTree :: 
+  Timeout       -- ^ Timeout how long the test will be run atmost - if timeout is reached the test is errore`d.
+  -> TestTree   -- ^ Executable Tasty Test Tree - meant to be a single test!
+  -> IO Bool    -- ^ Test Result. True on pass, False on fail,timeout or error
 checkTastyTree timeout test =
   case tryIngredients [TestReporter []
                        (\_ _ -> Just reportFun)] mempty with_timeout of
@@ -217,3 +216,20 @@ checkTastyTree timeout test =
     reportFun smap = do
       results <- mapM waitUntilDone $ IntMap.elems smap
       return (\_ -> return $ and results)
+
+
+{-
+Legacy Comment: Ideas on CSV Design
+
+               test status (t_res). A string? Leave it bool for now.
+                       ↓
+         test_name, test_result  , e1 , e2 <- mix_file location
+ test_name <-   t1,   y (1/1)    , 1  , 27 <- number of evals
+                t2,   y          , 0  , 17
+                t3,   n (0/1)    , 17 , 5
+                t4,   n          , 5  , 0
+                q1,   n (4/5)    , 7  , 5
+                        ↑
+                      from amount of tests, if < 1 then fail
+think about data format..?
+-}

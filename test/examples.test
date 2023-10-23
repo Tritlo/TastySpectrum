@@ -1,0 +1,16 @@
+# 1. Simple Test if the cabal test behaves 
+# as expected with some failing tests.
+# Exitcode should be 1, as `cabal test` is failing
+# Important: There is std error, but most things are printed stdout 
+< 
+$ cabal test 
+> /Test suite TastySpectrum-test: FAIL/
+>2 /Error: cabal: Tests failed for/
+>=1
+
+# 2. Test if we see spectrum output when we pass our flags
+<
+$ cabal test --test-options "--get-spectrum" 
+> /"sort == sort . reverse",True,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,100,100,100,100,100,100,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0/
+>2 /Error: cabal: Tests failed for/
+>=1

@@ -36,6 +36,8 @@ opts = info (config <**> helper)
          progDesc ("Print the tasty spectrum in TARGET to a tree-view.")  <>
          header "spec-csv-to-tree")
 
+-- | This main is running the CSVToForest part only. 
+-- For use of the "Ingredient" see the repositories Readme.
 main :: IO ()
 main = do Conf {..} <- execParser opts
           tr@(test_results, labeled) <- parseCSV target_file
