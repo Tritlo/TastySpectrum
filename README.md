@@ -28,7 +28,17 @@ cabal test --test-options --get-spectrum
 
 Use like: `cabal test --test-options "--get-spectrum --spectrum-out=./spectrum.csv"`
 
-And to print a tree view of the expressions: `cabal run tasty-sbfl -- spectrum.csv`
+And to print a tree view of the expressions: `cabal run tasty-sbfl -- spectrum.csv tree`
+
+And to print the expressions as ranked by ALG: `cabal run tasty-sbfl -- spectrum.csv ALG`,
+where `ALG` is one of:
++ `tarantula`
++ `ochiai`
++ `dstar K`, where `K` is the number to be used by the dstar algorithm.
+
+To limit the number of results to the top N expressions (as determined by ALG), use `--limit N`.
+
+See `cabal run tasty-sbfl -- --help` for more information.
 
 *Testing*: 
 
