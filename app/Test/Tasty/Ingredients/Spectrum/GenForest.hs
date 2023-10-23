@@ -1,11 +1,8 @@
-module Test.Tasty.Ingredients.Spectrum.CSVToForest (
-        Label(..),
-        csvToForest) where
+module Test.Tasty.Ingredients.Spectrum.GenForest (genForest) where
 
 
 import Test.Tasty.Ingredients.Spectrum.Types
 import Test.Tasty.Ingredients.Spectrum.ParseCSV
-
 
 
 
@@ -18,12 +15,6 @@ import qualified Data.Map.Strict as Map
 import Data.Map (Map)
 import Data.Function (on)
     
-
-csvToForest :: FilePath -> IO ([(String, Bool)], Forest Label)
-csvToForest target_file = do (test_results, labeled) <- parseCSV target_file
-                             return (test_results, genForest labeled)
-
-
 
 
 genForest :: [Label] -> Forest Label

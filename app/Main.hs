@@ -2,11 +2,16 @@
 module Main where
 
 
-
 import Options.Applicative
 import Data.Tree (drawForest)
 
-import Test.Tasty.Ingredients.Spectrum.CSVToForest
+import Test.Tasty.Ingredients.Spectrum.GenForest
+import Test.Tasty.Ingredients.Spectrum.ParseCSV
+import Test.Tasty.Ingredients.Spectrum.Types
+import Test.Tasty.Ingredients.Spectrum.SBFL
+
+import Data.List (sortOn)
+
 
 -- | convert Mix files and CSV to a tree.
 data Config = Conf {
@@ -14,8 +19,14 @@ data Config = Conf {
     } deriving (Eq, Show)
 
 
+data Action = Tree
+            | Tarantula
+            | Ochiai
+            | Dstar Integer
+  deriving (Show, Eq)
+
 config :: Parser Config
-config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to convert to a tree")
+config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
               -- <*> strOption (long "hpc-dir" <> metavar "HPC_DIR" <> help "Location of the mix files" <> showDefault <> value ".hpc/")
 
 
@@ -27,6 +38,20 @@ opts = info (config <**> helper)
 
 main :: IO ()
 main = do Conf {..} <- execParser opts
-          (test_results, forest) <- csvToForest target_file
-          putStrLn $ drawForest $ map (fmap show) forest
+          tr@(test_results, labeled) <- parseCSV target_file
+          -- TODO: parse these from flags
+          let act = Tarantula
+              limit = 10
+          -- mapM_ print test_results
+          case act of 
+            Tree -> putStrLn $ drawForest $ map (fmap show) $ genForest labeled
+            alg -> let sf = case alg of
+                              Tarantula -> tarantula
+                              Ochiai -> ochiai
+                              Dstar k -> dstar k
+                       res = sortOn ((\i -> -i) . snd) $ sf tr
+                       ppr ((Label {loc_name=ln, loc_pos=lp}), score) =
+                        ln ++ ":" ++ (show lp) ++ " " ++ show score
+                   in mapM_ (putStrLn . ppr) $ take limit res
+
 
