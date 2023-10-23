@@ -76,6 +76,7 @@ library
 executable tasty-sbfl
   default-language: Haskell2010
   main-is: app/Main.hs
+  ghc-options: -O2 -threaded -rtsopts
   build-depends: base >= 4 && < 5,
                  tasty-spectrum,
                  hpc,
