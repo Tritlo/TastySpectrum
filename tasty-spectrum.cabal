@@ -56,7 +56,10 @@ common warnings
 library
     -- Base language which the package is written in.
     exposed-modules: Test.Tasty.Ingredients.Spectrum,
-                     Test.Tasty.Ingredients.Spectrum.CSVToForest
+                     Test.Tasty.Ingredients.Spectrum.CSVToForest,
+                     Test.Tasty.Ingredients.Spectrum.Types,
+                     Test.Tasty.Ingredients.Spectrum.ParseCSV
+
     hs-source-dirs: app/
 
     build-depends:    base >=4 && < 5,
