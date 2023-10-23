@@ -28,7 +28,7 @@ cabal test --test-options --get-spectrum
 
 Use like: `cabal test --test-options "--get-spectrum --spectrum-out=./spectrum.csv"`
 
-And to print a tree view of the expressions: `cabal run spec-csv-to-tree spectrum.csv`
+And to print a tree view of the expressions: `cabal run tasty-sbfl -- spectrum.csv`
 
 *Testing*: 
 
