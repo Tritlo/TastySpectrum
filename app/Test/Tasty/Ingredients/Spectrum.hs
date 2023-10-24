@@ -186,9 +186,12 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
 unfoldTastyTests :: 
   TestTree                 -- ^ A collection of Tasty Tests
   -> [(String, TestTree)]  -- ^ A list of (TestName,Test) with single tests without sub-elements.
-unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs'}) mempty
-  where fs' opts name test = [(name, TR.PlusTestOptions (opts <>) $
+unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs,
+                                                    TR.foldGroup = fg}) mempty
+  where fs opts name test = [(name, TR.PlusTestOptions (opts <>) $
                                      TR.SingleTest name test)]
+        fg gopts gname = map (\(n,t) -> (gname<>"/"<>n, TR.PlusTestOptions (gopts <>) $ t))
+
 
 -- | This function runs a single test - but a single test and a test-collection share the same type in tasty. 
 -- The result is the test-status. True on pass, false on fail or error.
