@@ -46,7 +46,9 @@ ochiai r@(test_results, labeled) = map (\l -> (l, oc l)) labeled
 -- | The DStar Formula
 -- Relevant Publication: https://doi.org/10.1109/TR.2013.2285319
 dstar :: Integer -> TestResults -> [(Label, Double)]
-dstar k r@(test_results, labeled) = map (\l -> (l, ds l)) labeled
+dstar k r@(test_results, labeled) 
+      | k <= 0 = error "DStar requires k>=1"
+      | otherwise = map (\l -> (l, ds l)) labeled
     where (_,tf) = totalPassFail r
           ds label = ((fromInteger f)^^k)/(fromInteger $ (tf - f)+p)
             where (p,f) = passFail label
