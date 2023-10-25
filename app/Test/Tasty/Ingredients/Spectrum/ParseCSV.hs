@@ -35,10 +35,10 @@ parseCSV target_file = do
               parsed = mapMaybe parseLine rs
 
               test_results = map (\(n,r,_) -> (n,r)) parsed
-              eval_results = transpose $ map (\(_,r,e) ->
-                                                (if not r then map (\i -> (-i))
-                                                      else map id)
-                                                e) parsed
+              eval_results = transpose $ map (\(_,r,e) -> 
+                                                if r
+                                                then e
+                                                else map negate e) parsed
             
               keepNonZero :: [Integer] -> [(Int,Integer)]
               keepNonZero = filter ((/=0) . snd) . zip [0..]
