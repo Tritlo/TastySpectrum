@@ -13,6 +13,7 @@ import Data.List (transpose)
 parseCSV :: FilePath -> IO ([(String, Bool)],[Label])
 parseCSV target_file = do
           f <- TIO.readFile target_file
+          print f
           let (h:rs) = T.splitOn (T.pack "\n") f
               (_:_:locs) = map ((\(fn,l) -> ( T.unpack $ T.drop 1 fn,
                                              read @HpcPos $ T.unpack $
@@ -28,7 +29,8 @@ parseCSV target_file = do
                              b <- read @Bool $ T.unpack t_res,
                              e <- map (read @Integer . T.unpack) evals
                             = Just (n,b,e)
-                           | otherwise = Nothing
+                           | T.null ln = Nothing
+                           | otherwise = error ("could not parse " <> T.unpack ln)
 
               parsed :: [(String, Bool, [Integer])]
               parsed = mapMaybe parseLine rs
