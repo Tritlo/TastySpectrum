@@ -42,8 +42,10 @@ parseCSV target_file = do
             
               keepNonZero :: [Integer] -> [(Int,Integer)]
               keepNonZero = filter ((/=0) . snd) . zip [0..]
-              labeled = zipWith3 (\(s,l) i es -> Label s l i $ keepNonZero es)
-                            locs [0..] eval_results
+              labeled = filter (\(Label _ _ _ v) -> not $ null v) $
+                          zipWith3 (\(s,l) i es -> Label s l i $ keepNonZero es)
+                          locs [0..] eval_results
+              
           return (test_results, labeled)
 
 
