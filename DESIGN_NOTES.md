@@ -12,6 +12,23 @@ We hope the provided spectrum is language-agnostic enough that also an python de
 We also hope that it will help with maintaining and publishing the different artifacts. 
 E.g. if there is a change to tasty ingredients, we will have to rewrite the spectrum creation, but the remainder of the pipeline is fine. 
 
+## How to read a spectrum.csv?
+
+Example (part) of a spectrum: 
+
+```
+test_name,test_result,"test\\Main.hs:36:8-36:19","test\\Main.hs:36:22-36:22","test\\Main.hs:36:7-36:26",...
+"sort == sort . reverse",True,1,0,0, ...
+"other test",False,0,10,100, ...
+...
+```
+
+1) The header contains all expressions, matching to their locations of HPC. This means, a single spectrum can contain elements from multiple hpc-modules
+2) Each Row resembles (exactly) one test. Properties or other elements also have exactly one row. 
+3) a test-result "True" means the test passed. "False" means it failed or threw an error. 
+4) an expression follows this standard format: `path/to/file.hs:start_row:start_column-end_row:end_column` 
+5) An entry of 0 means "this expression was not executed by this test", a number of 1 means a single execution, 100 translates to 100 executions and so on.
+
 ## "Sparse" Spectrum as default
 
 With a sparse spectrum we denote a spectrum where non-touched statements are *completely removed*. 

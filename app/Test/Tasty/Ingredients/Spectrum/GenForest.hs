@@ -16,7 +16,9 @@ import Data.Map (Map)
 import Data.Function (on)
     
 
-
+-- | This function orders a List of Labels (from a spectrum.csv) into multiple trees. 
+--   This is done by looking if one label contains another (based on source-code spans) 
+--   and then using this contains relation to build trees around nodes that are not contained by anything (roots). 
 genForest :: [Label] -> Forest Label
 genForest all_nodes = map toTreeF roots_and_children
   where nodeSet :: Map String (Set Label)
