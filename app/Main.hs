@@ -58,7 +58,6 @@ opts = info (config <**> helper)
 main :: IO ()
 main = do Conf {..} <- execParser opts
           tr@(test_results, labeled) <- parseCSV target_file
-          -- mapM_ print test_results
           let limit = if opt_limit <= 0 then id else take opt_limit
           case opt_command of 
             Tree -> putStrLn $ drawForest $ map (fmap show) 

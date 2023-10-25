@@ -13,7 +13,6 @@ import Data.List (transpose)
 parseCSV :: FilePath -> IO ([(String, Bool)],[Label])
 parseCSV target_file = do
           f <- TIO.readFile target_file
-          print f
           let (h:rs) = T.splitOn (T.pack "\n") f
               (_:_:locs) = map ((\(fn,l) -> ( T.unpack $ T.drop 1 fn,
                                              read @HpcPos $ T.unpack $
