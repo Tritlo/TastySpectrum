@@ -84,7 +84,7 @@ executable tasty-sbfl
                  tasty-spectrum
 
 
-test-suite TastySpectrum-test
+test-suite tasty-spectrum-tests
     -- Import common warning flags.
     import:           warnings
 
@@ -101,6 +101,35 @@ test-suite TastySpectrum-test
 
     -- Directories containing source files.
     hs-source-dirs:   test
+
+    -- The entrypoint to the test suite.
+    main-is:          Main.hs
+
+    -- Test dependencies.
+    build-depends:    base >= 4 && < 5,
+                      tasty >= 1.4 && < 1.5,
+                      tasty-quickcheck >= 0.9 && < 0.11,
+                      tasty-hunit >= 0.9 && < 0.11,
+                      tasty-spectrum
+
+
+test-suite tasty-spectrum-example
+    -- Import common warning flags.
+    import:           warnings
+
+    -- Base language which the package is written in.
+
+    -- Modules included in this executable, other than Main.
+    -- other-modules:
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+
+    -- The interface type and version of the test suite.
+    type:             exitcode-stdio-1.0
+
+    -- Directories containing source files.
+    hs-source-dirs:   example
 
     -- The entrypoint to the test suite.
     main-is:          Main.hs
