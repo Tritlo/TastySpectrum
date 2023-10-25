@@ -36,7 +36,7 @@ parseCSV target_file = do
 
               test_results = map (\(n,r,_) -> (n,r)) parsed
               eval_results = transpose $ map (\(_,r,e) ->
-                                                (if r then map (\i -> (-i))
+                                                (if not r then map (\i -> (-i))
                                                       else map id)
                                                 e) parsed
             
