@@ -1,6 +1,6 @@
 # Tasty Spectrum 
 
-Tasty Ingredient that created a coverage-based fault-localization-spectrum.
+Tasty Ingredient that creates a coverage-based fault-localization-spectrum.
 
 *Note*: It re-runs all tests, which depending on your test-suite can become burdensome. 
 Please keep this in mind and only run it on-demand if you are in need of a spectrum.
@@ -15,7 +15,8 @@ Please keep this in mind and only run it on-demand if you are in need of a spect
 
 ```
 cabal build
-cabal test --test-options --get-spectrum
+cabal test tasty-spectrum-tests
+cabal test tasty-spectrum-example --test-options --get-spectrum
 ```
 
 *Other available flags*:
@@ -26,7 +27,7 @@ cabal test --test-options --get-spectrum
 --non-sparse-spectrum 
 ```
 
-Use like: `cabal test --test-options "--get-spectrum --spectrum-out=./spectrum.csv"`
+Use like: `cabal test tasty-spectrum-example --test-options "--get-spectrum --spectrum-out=./spectrum.csv"`
 
 And to print a tree view of the expressions: `cabal run tasty-sbfl -- spectrum.csv tree`
 
