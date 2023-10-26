@@ -4,6 +4,9 @@
 
 These spectrums are taken from their respective papers and the exampels they provide for how their algorithms work. 
 
+Formulas are taken from [Should I follow this fault localization tool’s output?
+](https://link.springer.com/article/10.1007/s10664-014-9349-1)
+
 [dstar](dstar.csv) is adjusted from [their paper](https://doi.org/10.1109/TR.2013.2285319) 
 
 s3 is the faulty statement. 
