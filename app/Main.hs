@@ -11,13 +11,15 @@ import Test.Tasty.Ingredients.Spectrum.Types
 import Test.Tasty.Ingredients.Spectrum.SBFL
 
 import Data.List (sortOn)
+import qualified Data.Set as Set
 
 
 -- | convert Mix files and CSV to a tree.
 data Config = Conf {
         target_file :: !FilePath,
         opt_command :: !Command,
-        opt_limit :: !Int
+        opt_limit :: !Int,
+        ignore :: !String
 
     } deriving (Eq, Show)
 
@@ -33,6 +35,7 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
              <*> hsubparser (treeCommand <> tarantulaCommand <> ochiaiCommand <> dstarCommand)
              <*> option auto (long "limit" <> value 0
                             <> short 'n' <> metavar "LIMIT" <> help "The number of results to show")
+             <*> (strOption (long "ignore" <> value "" <> metavar "IGNORE" <> help "Paths to ignore (e.g. 'tests/Main.hs src/Data/Module/File.hs')"))
     where 
           treeCommand :: Mod CommandFields Command
           treeCommand = command "tree" (info (pure Tree) (progDesc "Show a tree of the results"))
@@ -57,8 +60,12 @@ opts = info (config <**> helper)
 -- For use of the "Ingredient" see the repositories Readme.
 main :: IO ()
 main = do Conf {..} <- execParser opts
-          tr@(test_results, labeled) <- parseCSV target_file
+          tr'@(test_results, labeled') <- parseCSV target_file
           let limit = if opt_limit <= 0 then id else take opt_limit
+              labeled  = if null ignore then labeled'
+                         else let paths = Set.fromList (words ignore)
+                              in filter (not . flip Set.member paths . loc_name) labeled'
+              tr = (test_results,labeled)
           case opt_command of 
             Tree -> putStrLn $ drawForest $ map (fmap show) 
                              $ limit $ genForest labeled
