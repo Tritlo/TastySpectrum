@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE BangPatterns #-}
 module Main where
 
 
@@ -10,7 +11,7 @@ import Test.Tasty.Ingredients.Spectrum.ParseCSV
 import Test.Tasty.Ingredients.Spectrum.Types
 import Test.Tasty.Ingredients.Spectrum.SBFL
 
-import Data.List (sortOn, isPrefixOf)
+import Data.List (sortOn, isPrefixOf, sortBy)
 import qualified Data.Map as Map
 
 
@@ -20,6 +21,7 @@ data Config = Conf {
         opt_command :: !Command,
         opt_limit :: !Int,
         ignore :: !String,
+        use_scaling :: !Bool,
         show_leaf_distance :: !Bool,
         show_root_distance :: !Bool
 
@@ -38,6 +40,7 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
              <*> option auto (long "limit" <> value 0
                             <> short 'n' <> metavar "LIMIT" <> help "The number of results to show")
              <*> (strOption (long "ignore" <> value "" <> metavar "IGNORE" <> help "Paths to ignore (e.g. 'tests/Main.hs src/Data/Module/File.hs')"))
+             <*> switch (long "use-scaling" <> help "Use ratio of failing/passing evals to sort identical scores")
              <*> switch (long "show-leaf-distance" <> help "Display the distance of the expression from a leaf node")
              <*> switch (long "show-root-distance" <> help "Display the distance of the expression from a root node")
     where 
@@ -77,7 +80,20 @@ main = do Conf {..} <- execParser opts
                               Tarantula -> tarantula
                               Ochiai -> ochiai
                               DStar k -> dstar k
-                       res = sortOn ((\i -> -i) . snd) $ sf tr
+                       -- We first sort it so that the ones with a higher ratio
+                       -- are first in case of the same score.
+                       comp (_,s1,r1) (_,s2,r2) =
+                                case compare s1 s2 of
+                                    LT -> GT
+                                    GT -> LT
+                                    EQ -> case compare r1 r2 of
+                                            LT -> GT
+                                            GT -> LT
+                                            EQ -> EQ
+                       !res = if use_scaling
+                              then map (\(a,b,_) -> (a,b)) $
+                                    sortBy comp $ scaledEvals $ sf tr
+                              else sortOn ((\i -> -i) . snd) $ sf tr
                        ppr ((Label {loc_name=ln, loc_pos=lp}), score) =
                         ln <> ":" <> show lp <> " " <> show score
                        

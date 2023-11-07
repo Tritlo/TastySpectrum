@@ -1,6 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
 module Test.Tasty.Ingredients.Spectrum.SBFL where
 
 import Test.Tasty.Ingredients.Spectrum.Types
+import Data.List (partition)
 
 -- ! DevNote: The Formulas have been extracted from the following Publication:
 -- Should I follow this fault localization tool’s output? https://link.springer.com/article/10.1007/s10664-014-9349-1 
@@ -19,13 +21,15 @@ totalPassFail (res,_) = (toInteger p, toInteger f)
 
 -- | Returns the number of passing and failing tests for a single spectrum-expression
 -- TODO: should we be extra save and filter out 0`s ? 
-passFail :: 
-      Label                -- ^ A source code location, including the 
-      -> (Integer,Integer) -- ^ (NumberOfPassing,NumberOfFailing)-Tests
+passFail ::
+  Label                -- ^ A source code location, including the 
+  -> (Integer,Integer) -- ^ (NumberOfPassing,NumberOfFailing)-Tests
 passFail (Label {loc_evals=evals}) = (toInteger p, toInteger f)
     where p = length $ filter (>0) $ map snd evals
           f = length evals - p
-    
+
+
+
 -- | The Tarantula Formula
 -- Relevant Publication: https://dl.acm.org/doi/abs/10.1145/1101908.1101949
 tarantula :: TestResults -> [(Label, Double)]
@@ -53,3 +57,21 @@ dstar k r@(test_results, labeled)
           ds label = ((fromInteger f)^^k)/(fromInteger $ (tf - f)+p)
             where (p,f) = passFail label
 
+
+-- Extension based on evals:
+
+passFailEvals ::
+  Label                     -- ^ A source code location, including the 
+  -> ([Integer], [Integer]) -- ^ (EvalsOfPassing,EvalsOfFailing)-Tests
+passFailEvals (Label {loc_evals=evals}) = partition (>0) $ map snd evals
+
+
+scaledEvals:: [(Label,Double)] -> [(Label, Double, Double)]
+scaledEvals labeled = map (\(l, d) -> (l, d, scale l)) labeled
+    -- For each label, we add a number representing the ratio of 
+    -- failing evals as compared to all evals.
+    where scale label = scale
+            where (pe,fe) = passFailEvals label
+                  !pes = abs (fromInteger $ sum pe)
+                  !fes = abs (fromInteger $ sum fe)
+                  !scale = fes / (fes + pes)
