@@ -35,8 +35,8 @@ tarantula r@(test_results, labeled) = map (\l -> (l, ttula l)) labeled
     where (tp,tf) = totalPassFail r
           ttula label = ftf/(ptp + ftf)
             where (p,f) = passFail label
-                  ftf = (fromInteger f)/(fromInteger tf)
-                  ptp = (fromInteger p)/(fromInteger tp)
+                  ftf = fromInteger f/fromInteger tf
+                  ptp = fromInteger p/fromInteger tp
 
 -- | OCHIAI Formula
 -- Original Paper is from Biology and Genetics, so best SE Paper is likely
@@ -44,7 +44,7 @@ tarantula r@(test_results, labeled) = map (\l -> (l, ttula l)) labeled
 ochiai :: TestResults -> [(Label, Double)]
 ochiai r@(test_results, labeled) = map (\l -> (l, oc l)) labeled
     where (_,tf) = totalPassFail r
-          oc label = (fromInteger f)/(sqrt $fromInteger $ tf*(p+f))
+          oc label = fromInteger f/sqrt (fromInteger $ tf*(p+f))
             where (p,f) = passFail label
 
 -- | The DStar Formula
@@ -54,7 +54,7 @@ dstar k r@(test_results, labeled)
       | k <= 0 = error "DStar requires k>=1"
       | otherwise = map (\l -> (l, ds l)) labeled
     where (_,tf) = totalPassFail r
-          ds label = ((fromInteger f)^^k)/(fromInteger $ (tf - f)+p)
+          ds label = (fromInteger f^^k)/fromInteger ((tf - f)+p)
             where (p,f) = passFail label
 
 
@@ -63,15 +63,15 @@ dstar k r@(test_results, labeled)
 passFailEvals ::
   Label                     -- ^ A source code location, including the
   -> ([Integer], [Integer]) -- ^ (EvalsOfPassing,EvalsOfFailing)-Tests
-passFailEvals (Label {loc_evals=evals}) = partition (>0) $ map snd evals
+passFailEvals Label{loc_evals=evals} = partition (>0) $ map snd evals
 
 
 scaledEvals:: [(Label,Double)] -> [(Label, Double, Double)]
-scaledEvals labeled = map (\(l, d) -> (l, d, scale l)) labeled
+scaledEvals = map (\(l, d) -> (l, d, scale l))
     -- For each label, we add a number representing the ratio of
     -- failing evals as compared to all evals.
     where scale label = scale
             where (pe,fe) = passFailEvals label
-                  !pes = abs (fromInteger $ sum pe)
-                  !fes = abs (fromInteger $ sum fe)
+                  !pes = abs $ fromInteger $ sum pe
+                  !fes = abs $ fromInteger $ sum fe
                   !scale = fes / (fes + pes)
