@@ -26,53 +26,15 @@ import Data.Maybe (isJust)
 
 runRules :: TestResults -> IO ()
 runRules tr@(!test_results, !loc_groups, !labels) = do
-    let !imap = IM.fromAscList $ map (\l@Label{loc_index=li} -> (li, l)) labels
-        parents (Label{loc_pos=p,loc_index=i,loc_group=g}) =
-                IS.fromAscList $ map loc_index $
-                        filter (\l@Label{loc_pos=lp, loc_index=li, loc_group=lg} ->
-                                        g == lg &&
-                                        insideHpcPos hp (toHpcPos lp) && li /= i) labels
-            where hp = toHpcPos p
-        children (Label{loc_pos=p, loc_group =g, loc_index=i}) =
-                IS.fromAscList $ map loc_index $
-                        filter (\Label{loc_pos=lp, loc_index=li, loc_group=lg} ->
-                                   g == lg &&
-                                   insideHpcPos (toHpcPos lp) hp  && li /= i) labels
-            where hp = toHpcPos p
-        !all_parents_and_children
-            = IM.fromAscList $ map (\l@Label{loc_index=li} -> (li, (parents l, children l))) labels 
-        direct_parent_and_children li = (direct_parent, direct_children)
-            where (ps, cs) = all_parents_and_children IM.! li
-                  -- the direct parent is the one whose parents include all
-                  -- the parents of this one except itself.
-                  !direct_parent = if IS.null ps then Nothing
-                    else case (L.sortOn (negate . IS.size . snd) $
-                                map (\pi -> (pi, fst $ all_parents_and_children IM.! pi)) $ IS.toList ps) of 
-                          ((direct_parent,_):_) -> Just direct_parent
-                          _ -> Nothing
-                  !direct_children = if IS.null cs then IS.empty
-                        else cs IS.\\ (IS.unions $ map (snd .  (all_parents_and_children IM.!)) $ IS.toList cs)
-        !parent_and_direct_children = 
-            IM.fromAscList $ map (\Label{loc_index=li}
-                                -> (li, direct_parent_and_children li)) labels
 
-        roots = filter (\(i,(dp,_)) -> not (isJust dp)) $
-                        IM.assocs parent_and_direct_children
-
-        toTree i = Node (prettyLabel loc_groups $ (imap IM.! i)) $ map toTree $
-                       IS.toList $ snd (parent_and_direct_children  IM.! i)
-         
-        
-                  
-    putStrLn $ drawForest $ map (toTree . fst) roots
+    putStrLn $ drawForest $ map (fmap (\i -> pprLabel loc_groups i))
+                          $ genForest labels
 
 
 -- TODO: we should allow rules to change the environment.
 data Environment = Env {
                      test_results :: [(String, Bool)],
-                     parent :: IntMap Int,
-                     children :: IntMap IntSet 
-
+                     parents_and_children :: IntMap ([Int], IntSet)
                    }
 
 type Rule = Environment -> Label -> Double

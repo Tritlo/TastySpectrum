@@ -6,7 +6,7 @@
 module Test.Tasty.Ingredients.Spectrum.Types (
         Label (..),
         TestResults,
-        prettyLabel,
+        pprLabel,
         module Trace.Hpc.Util
             ) where
 
@@ -35,8 +35,8 @@ data Label = Label { loc_group :: !Int,               -- ^ Index of the module t
 -- In a similar matter, non-evaluated statements are not included despite them being in the .csv`s.
 --
 
-prettyLabel :: IM.IntMap String -> Label -> String
-prettyLabel loc_groups Label{..} =
+pprLabel :: IM.IntMap String -> Label -> String
+pprLabel loc_groups Label{..} =
     fn <> ":" <> p <> " " <> show loc_evals
    where fn = loc_groups IM.! loc_group
          p = show $ toHpcPos loc_pos
