@@ -4,6 +4,8 @@ module Test.Tasty.Ingredients.Spectrum.SBFL where
 import Test.Tasty.Ingredients.Spectrum.Types
 import Data.List (partition)
 
+import qualified Data.IntMap.Strict as IM
+
 import Control.Parallel.Strategies
 
 pmap :: NFData b => (a -> b) -> [a] -> [b]
@@ -33,7 +35,7 @@ passFail ::
       Label                -- ^ A source code location, including the
       -> (Integer,Integer) -- ^ (NumberOfPassing,NumberOfFailing)-Tests
 passFail (Label {loc_evals=evals}) = (toInteger p, toInteger f)
-    where p = length $ filter (>0) $ map snd evals
+    where p = length $ filter (>0) $ IM.elems evals
           f = length evals - p
 
 -- | The Tarantula Formula
@@ -71,7 +73,7 @@ dstar k r@(test_results, _, labeled)
 passFailEvals ::
   Label                     -- ^ A source code location, including the
   -> ([Integer], [Integer]) -- ^ (EvalsOfPassing,EvalsOfFailing)-Tests
-passFailEvals Label{loc_evals=evals} = partition (>0) $ map snd evals
+passFailEvals Label{loc_evals=evals} = partition (>0) $ IM.elems evals
 
 
 scaledEvals:: [(Label,Double)] -> [(Label, Double, Double)]

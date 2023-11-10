@@ -76,39 +76,39 @@ main = do Conf {..} <- execParser opts
                                   anyPrefix loc = any ($ loc) prefixes
                               in filter (not . anyPrefix . (loc_groups IM.!) . loc_group) labeled'
               tr = (test_results, loc_groups, labeled)
-          -- runRules tr'
+          runRules tr'
           -- error "done"
-          case opt_command of 
-            Tree -> putStrLn $ drawForest $ map (fmap show) 
-                             $ limit $ genForest labeled
-            alg -> let sf = case alg of
-                              Tarantula -> tarantula
-                              Ochiai -> ochiai
-                              DStar k -> dstar k
-                       -- We first sort it so that the ones with a higher ratio
-                       -- are first in case of the same score.
-                       comp (_,s1,r1) (_,s2,r2) =
-                                case compare s1 s2 of
-                                    LT -> GT
-                                    GT -> LT
-                                    EQ -> case compare r1 r2 of
-                                            LT -> GT
-                                            GT -> LT
-                                            EQ -> EQ
-                       !res = if use_scaling
-                              then map (\(a,b,_) -> (a,b)) $
-                                    sortBy comp $ scaledEvals $ sf tr
-                              else sortOn ((\i -> -i) . snd) $ sf tr
-                       ppr ((Label {loc_group=ln, loc_pos=lp}), score) =
-                        (loc_groups IM.! ln) <> ":" <> show (toHpcPos lp) <> " " <> show score
+          -- case opt_command of 
+          --   Tree -> putStrLn $ drawForest $ map (fmap show) 
+          --                    $ limit $ genForest labeled
+          --   alg -> let sf = case alg of
+          --                     Tarantula -> tarantula
+          --                     Ochiai -> ochiai
+          --                     DStar k -> dstar k
+          --              -- We first sort it so that the ones with a higher ratio
+          --              -- are first in case of the same score.
+          --              comp (_,s1,r1) (_,s2,r2) =
+          --                       case compare s1 s2 of
+          --                           LT -> GT
+          --                           GT -> LT
+          --                           EQ -> case compare r1 r2 of
+          --                                   LT -> GT
+          --                                   GT -> LT
+          --                                   EQ -> EQ
+          --              !res = if use_scaling
+          --                     then map (\(a,b,_) -> (a,b)) $
+          --                           sortBy comp $ scaledEvals $ sf tr
+          --                     else sortOn ((\i -> -i) . snd) $ sf tr
+          --              ppr ((Label {loc_group=ln, loc_pos=lp}), score) =
+          --               (loc_groups IM.! ln) <> ":" <> show (toHpcPos lp) <> " " <> show score
                        
-                   in if (show_leaf_distance || show_root_distance)
-                      then let ds =  if show_leaf_distance
-                                     then leafDistances labeled
-                                     else rootDistances labeled
-                               ppr' b@(l,_) =
-                                    ppr b <> " " <> show (ds Map.! l)
-                            in mapM_ (putStrLn . ppr') $ limit res
-                      else mapM_ (putStrLn . ppr) $ limit res
+          --          in if (show_leaf_distance || show_root_distance)
+          --             then let ds =  if show_leaf_distance
+          --                            then leafDistances labeled
+          --                            else rootDistances labeled
+          --                      ppr' b@(l,_) =
+          --                           ppr b <> " " <> show (ds Map.! l)
+          --                   in mapM_ (putStrLn . ppr') $ limit res
+          --             else mapM_ (putStrLn . ppr) $ limit res
 
 

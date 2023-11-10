@@ -1,24 +1,17 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
-module Test.Tasty.Ingredients.Spectrum.GenForest (
-        genForest, leafDistances, rootDistances,
-        genNodeSet, containedBy, contains
-
-        ) where
+{-# LANGUAGE TypeApplications #-}
+module Test.Tasty.Ingredients.Spectrum.Rules where
 
 
 import Test.Tasty.Ingredients.Spectrum.Types
-import Test.Tasty.Ingredients.Spectrum.ParseCSV
-
-
+import Test.Tasty.Ingredients.Spectrum.GenForest
 
 import qualified Data.Set as Set
 import Data.Set (Set)
-import qualified Data.Graph as Graph
-import Data.Graph (Tree(..), Forest)
-import qualified Data.List as L
+
 import qualified Data.Map.Strict as Map
 import Data.Map (Map)
-import Data.Function (on)
 
 import qualified Data.IntMap.Strict as IM
 import Data.IntMap (IntMap)
@@ -27,45 +20,13 @@ import qualified Data.IntSet as IS
 import Data.IntSet (IntSet)
 import qualified Data.List as L
 
-
-
+import Data.Tree (drawForest)
+import Data.Tree
 import Data.Maybe (isJust)
 
--- Not very efficient?
-leafDistances :: [Label] -> Map Label Int
-leafDistances labels =
-    Map.fromList $ map (\l -> (l, Set.size $ contains nodeSet l)) labels
-    where nodeSet = genNodeSet labels
-
-rootDistances :: [Label] -> Map Label Int
-rootDistances labels =
-    Map.fromList $ map (\l -> (l, Set.size $ containedBy nodeSet l)) labels
-    where nodeSet = genNodeSet labels
-
-
-genNodeSet :: [Label] -> IntMap (Set Label)
-genNodeSet all_nodes = IM.fromAscList $
-    map (\g@(h:_) -> (loc_group h, Set.fromList g)) $
-       L.groupBy ((==) `on` loc_group) $
-       L.sortBy (compare `on` loc_group) $ all_nodes
-
--- How many locations contain this location
-containedBy :: IntMap (Set Label) -> Label -> Set Label
-containedBy nodeSet n = ns''
-    where ns' = Set.delete n (nodeSet IM.! (loc_group n))
-          ns'' = Set.filter (insideHpcPos (toHpcPos $ loc_pos n) . toHpcPos . loc_pos) ns'
-
-contains :: IntMap (Set Label) -> Label -> Set Label
-contains nodeSet n = ns''
-    where ns' = Set.delete n (nodeSet IM.! (loc_group n))
-          ns'' = Set.filter (flip insideHpcPos (toHpcPos $ loc_pos n) . toHpcPos . loc_pos) ns'
-
--- | This function orders a List of Labels (from a spectrum.csv) into multiple trees.
---   This is done by looking if one label contains another (based on source-code spans)
---   and then using this contains relation to build trees around nodes that are not contained by anything (roots).
-genForest :: TestResults -> Forest Label
-genForest (_,loc_groups, labels) = map (toTree . fst) roots
-  where !imap = IM.fromAscList $ map (\l@Label{loc_index=li} -> (li, l)) labels
+runRules :: TestResults -> IO ()
+runRules tr@(!test_results, !loc_groups, !labels) = do
+    let !imap = IM.fromAscList $ map (\l@Label{loc_index=li} -> (li, l)) labels
         parents (Label{loc_pos=p,loc_index=i}) =
                 IS.fromAscList $ map loc_index $
                         filter (\l@Label{loc_pos=lp, loc_index= li} ->
@@ -96,6 +57,32 @@ genForest (_,loc_groups, labels) = map (toTree . fst) roots
         roots = filter (\(i,(dp,_)) -> not (isJust dp)) $
                         IM.assocs parent_and_direct_children
 
-        toTree i = Node (imap IM.! i) $ map toTree $
+        toTree i = Node (prettyLabel loc_groups $ (imap IM.! i)) $ map toTree $
                        IS.toList $ snd (parent_and_direct_children  IM.! i)
+         
+        
+                  
+    putStrLn $ drawForest $ map (toTree . fst) roots
+
+
+-- TODO: we should allow rules to change the environment.
+data Environment = Env {
+                     test_results :: [(String, Bool)],
+                     parent :: IntMap Int,
+                     children :: IntMap IntSet 
+
+                   }
+
+type Rule = Environment -> Label -> Double
+
+
+rTFail :: Rule
+rTFail _ Label{..} = 
+  fromInteger $ x * (toInteger $ length (filter (< 0) $ IM.elems loc_evals))
+    where x = 3
+
+rTPass :: Rule
+rTPass _ Label{..} = 
+  fromInteger $ (-y) * ( toInteger $ length (filter (>0) $ IM.elems loc_evals))
+   where y = 5
 

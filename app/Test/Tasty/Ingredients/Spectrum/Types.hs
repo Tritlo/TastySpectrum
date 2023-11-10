@@ -6,6 +6,7 @@
 module Test.Tasty.Ingredients.Spectrum.Types (
         Label (..),
         TestResults,
+        prettyLabel,
         module Trace.Hpc.Util
             ) where
 
@@ -19,14 +20,13 @@ import GHC.Generics (Generic)
 import Data.IntMap.Strict as IM
 
 
-data Label = Label {
-                    loc_group :: !Int,             -- ^ "Speaking" name of the origin file. Usually something like "source/module/file.hs"
-                    loc_pos :: !(Int,Int,Int,Int),              -- ^ Source Code position of the given mix index, usually translates to something like 4:6-5:11 (from L4 Column 6 to L5 Column 11)
-                    loc_index :: !Int,               -- ^ The index of the expression in our .csv-file. This is used as a unique identifier.
-                    loc_evals :: ![(Int,Integer)]   -- ^ A list of tests and how often this position has been evaluated.
-                                                    --   The first Int is the index of the tests, the second Integer is how often this loc_pos has been evaluated.
-                                                    --   The second Integer will be positive for passing tests and negative for failing tests.
-                                                    --   It should not have 0`s as we do not account for non-evaluated things in our data structure.
+data Label = Label { loc_group :: !Int,               -- ^ Index of the module this label belongs to.
+                     loc_pos :: !(Int,Int,Int,Int),   -- ^ Source Code position of the given mix index, usually translates to something like 4:6-5:11 (from L4 Column 6 to L5 Column 11)
+                     loc_index :: !Int,               -- ^ The index of the expression in our .csv-file. This is used as a unique identifier.
+                     loc_evals :: !(IntMap Integer)   -- ^ A list of tests and how often this position has been evaluated
+                                                      --   The first Int is the index of the tests, the second Integer is how often this loc_pos has been evaluated.
+                                                      --   The second Integer will be positive for passing tests and negative for failing tests.
+                                                      --   It should not have 0`s as we do not account for non-evaluated things in our data structure.
                    } deriving (Generic, NFData)
 
 -- ! DevNote:

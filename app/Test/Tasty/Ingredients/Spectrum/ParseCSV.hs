@@ -11,6 +11,7 @@ import Data.List (transpose, group, sort)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IM
+import Data.IntMap (IntMap)
 
 
 parseCSV :: FilePath -> IO ([(String, Bool)], IM.IntMap String, [Label])
@@ -50,9 +51,9 @@ parseCSV target_file = do
                                                 then e
                                                 else map negate e) parsed
 
-              keepNonZero :: [Integer] -> [(Int,Integer)]
-              keepNonZero = filter ((/=0) . snd) . zip [0..]
-              labeled = filter (\(Label _ _ _ v) -> not $ null v) $
+              keepNonZero :: [Integer] -> IntMap Integer
+              keepNonZero = IM.fromAscList . filter ((/=0) . snd) . zip [0..]
+              labeled = filter (\(Label _ _ _ v) -> not $ IM.null v) $
                           zipWith3 (\(s,l) i es -> Label (findGroup Map.! s)
                             l i $ keepNonZero es) locs [0..] eval_results
 
