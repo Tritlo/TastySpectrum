@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 module Test.Tasty.Ingredients.Spectrum.GenForest (genForest, leafDistances,
                                                              rootDistances) where
 
@@ -15,7 +16,7 @@ import qualified Data.List as L
 import qualified Data.Map.Strict as Map
 import Data.Map (Map)
 import Data.Function (on)
-   
+
 
 
 -- Not very efficient?
@@ -28,7 +29,7 @@ rootDistances :: [Label] -> Map Label Int
 rootDistances labels =
     Map.fromList $ map (\l -> (l, Set.size $ containedBy nodeSet l)) labels
     where nodeSet = genNodeSet labels
-          
+
 
 genNodeSet :: [Label] -> Map String (Set Label)
 genNodeSet all_nodes = Map.fromAscList $
@@ -40,35 +41,34 @@ genNodeSet all_nodes = Map.fromAscList $
 containedBy :: Map String (Set Label) -> Label -> Set Label
 containedBy nodeSet n = ns''
     where ns' = Set.delete n (nodeSet Map.! (loc_name n))
-          ns'' = Set.filter (insideHpcPos (loc_pos n) . loc_pos) ns'
+          ns'' = Set.filter (insideHpcPos (toHpcPos $ loc_pos n) . toHpcPos . loc_pos) ns'
 
 contains :: Map String (Set Label) -> Label -> Set Label
 contains nodeSet n = ns''
     where ns' = Set.delete n (nodeSet Map.! (loc_name n))
-          ns'' = Set.filter (flip insideHpcPos (loc_pos n) . loc_pos) ns'
+          ns'' = Set.filter (flip insideHpcPos (toHpcPos $ loc_pos n) . toHpcPos . loc_pos) ns'
 
--- | This function orders a List of Labels (from a spectrum.csv) into multiple trees. 
---   This is done by looking if one label contains another (based on source-code spans) 
---   and then using this contains relation to build trees around nodes that are not contained by anything (roots). 
+-- | This function orders a List of Labels (from a spectrum.csv) into multiple trees.
+--   This is done by looking if one label contains another (based on source-code spans)
+--   and then using this contains relation to build trees around nodes that are not contained by anything (roots).
 genForest :: [Label] -> Forest Label
 genForest all_nodes = map toTreeF roots_and_children
   where nodeSet :: Map String (Set Label)
-        nodeSet = genNodeSet all_nodes
+        !nodeSet = genNodeSet all_nodes
         containedBy' = containedBy nodeSet
         contained :: [(Label, Set Label)]
-        contained = map (\n -> (n, containedBy' n))  all_nodes
+        !contained = map (\n -> (n, containedBy' n))  all_nodes
         roots :: [Label]
-        roots = map fst $ filter (Set.null . snd) contained
-        roots_and_children = 
+        !roots = map fst $ filter (Set.null . snd) contained
+        !roots_and_children =
                     map (\r -> (r, map (\(c,s) -> (c, Set.delete r s)) $
                                             filter (Set.member r . snd) contained)) roots
-
         toTreeF (r, []) = Node r []
-        toTreeF (r,children) = Node r $ map toTreeF r_and_c
-            where rs = map fst $ filter (Set.null . snd) children
-                  r_and_c = 
+        toTreeF (r,!children) = Node r $ map toTreeF r_and_c
+            where !rs = map fst $ filter (Set.null . snd) children
+                  !r_and_c =
                         map (\r -> (r, map (\(c,s) -> (c, Set.delete r s)) $
                             filter (Set.member r . snd) children)) rs
-                
-            
+
+
 

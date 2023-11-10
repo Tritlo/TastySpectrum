@@ -4,6 +4,14 @@ module Test.Tasty.Ingredients.Spectrum.SBFL where
 import Test.Tasty.Ingredients.Spectrum.Types
 import Data.List (partition)
 
+import Control.Parallel.Strategies
+
+pmap :: NFData b => (a -> b) -> [a] -> [b]
+-- pmap f = withStrategy (parList rdeepseq) . map f
+-- pmap f = withStrategy (parListChunk chunk_size rdeepseq) . map f
+--   where chunk_size = 100000
+pmap = map
+
 -- ! DevNote: The Formulas have been extracted from the following Publication:
 -- Should I follow this fault localization tool’s output? https://link.springer.com/article/10.1007/s10664-014-9349-1
 -- It is a comparative study that lists all formulas in a similar format
@@ -31,7 +39,7 @@ passFail (Label {loc_evals=evals}) = (toInteger p, toInteger f)
 -- | The Tarantula Formula
 -- Relevant Publication: https://dl.acm.org/doi/abs/10.1145/1101908.1101949
 tarantula :: TestResults -> [(Label, Double)]
-tarantula r@(test_results, labeled) = map (\l -> (l, ttula l)) labeled
+tarantula r@(test_results, labeled) = pmap (\l -> (l, ttula l)) labeled
     where (tp,tf) = totalPassFail r
           ttula label = ftf/(ptp + ftf)
             where (p,f) = passFail label
@@ -42,7 +50,7 @@ tarantula r@(test_results, labeled) = map (\l -> (l, ttula l)) labeled
 -- Original Paper is from Biology and Genetics, so best SE Paper is likely
 -- https://link.springer.com/article/10.1007/s10664-014-9349-1
 ochiai :: TestResults -> [(Label, Double)]
-ochiai r@(test_results, labeled) = map (\l -> (l, oc l)) labeled
+ochiai r@(test_results, labeled) = pmap (\l -> (l, oc l)) labeled
     where (_,tf) = totalPassFail r
           oc label = fromInteger f/sqrt (fromInteger $ tf*(p+f))
             where (p,f) = passFail label
@@ -52,7 +60,7 @@ ochiai r@(test_results, labeled) = map (\l -> (l, oc l)) labeled
 dstar :: Integer -> TestResults -> [(Label, Double)]
 dstar k r@(test_results, labeled)
       | k <= 0 = error "DStar requires k>=1"
-      | otherwise = map (\l -> (l, ds l)) labeled
+      | otherwise = pmap (\l -> (l, ds l)) labeled
     where (_,tf) = totalPassFail r
           ds label = (fromInteger f^^k)/fromInteger ((tf - f)+p)
             where (p,f) = passFail label
