@@ -66,14 +66,17 @@ contains nodeSet n = ns''
 genForest :: TestResults -> Forest Label
 genForest (_,loc_groups, labels) = map (toTree . fst) roots
   where !imap = IM.fromAscList $ map (\l@Label{loc_index=li} -> (li, l)) labels
-        parents (Label{loc_pos=p,loc_index=i}) =
+
+        parents (Label{loc_pos=p,loc_index=i,loc_group=g}) =
                 IS.fromAscList $ map loc_index $
-                        filter (\l@Label{loc_pos=lp, loc_index= li} ->
+                        filter (\l@Label{loc_pos=lp, loc_index=li, loc_group=lg} ->
+                                        g == lg &&
                                         insideHpcPos hp (toHpcPos lp) && li /= i) labels
             where hp = toHpcPos p
-        children (Label{loc_pos=p,loc_index=i}) =
+        children (Label{loc_pos=p, loc_group =g, loc_index=i}) =
                 IS.fromAscList $ map loc_index $
-                        filter (\Label{loc_pos=lp, loc_index= li} ->
+                        filter (\Label{loc_pos=lp, loc_index=li, loc_group=lg} ->
+                                   g == lg &&
                                    insideHpcPos (toHpcPos lp) hp  && li /= i) labels
             where hp = toHpcPos p
         !all_parents_and_children
