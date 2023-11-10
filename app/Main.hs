@@ -10,9 +10,12 @@ import Test.Tasty.Ingredients.Spectrum.GenForest
 import Test.Tasty.Ingredients.Spectrum.ParseCSV
 import Test.Tasty.Ingredients.Spectrum.Types
 import Test.Tasty.Ingredients.Spectrum.SBFL
+import Test.Tasty.Ingredients.Spectrum.Rules
 
 import Data.List (sortOn, isPrefixOf, sortBy)
 import qualified Data.Map as Map
+
+import qualified Data.IntMap.Strict as IM
 
 
 -- | convert Mix files and CSV to a tree.
@@ -36,13 +39,12 @@ data Command = Tree
 
 config :: Parser Config
 config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
-             <*> hsubparser (treeCommand <> tarantulaCommand <> ochiaiCommand <> dstarCommand)
-             <*> option auto (long "limit" <> value 0
-                            <> short 'n' <> metavar "LIMIT" <> help "The number of results to show")
-             <*> (strOption (long "ignore" <> value "" <> metavar "IGNORE" <> help "Paths to ignore (e.g. 'tests/Main.hs src/Data/Module/File.hs')"))
-             <*> switch (long "use-scaling" <> help "Use ratio of failing/passing evals to sort identical scores")
-             <*> switch (long "show-leaf-distance" <> help "Display the distance of the expression from a leaf node")
-             <*> switch (long "show-root-distance" <> help "Display the distance of the expression from a root node")
+              <*> hsubparser (treeCommand <> tarantulaCommand <> ochiaiCommand <> dstarCommand)
+              <*> option auto (long "limit" <> value 0 <> short 'n' <> metavar "LIMIT" <> help "The number of results to show")
+              <*> (strOption (long "ignore" <> value "" <> metavar "IGNORE" <> help "Paths to ignore (e.g. 'tests/Main.hs src/Data/Module/File.hs')"))
+              <*> switch (long "use-scaling" <> help "Use ratio of failing/passing evals to sort identical scores")
+              <*> switch (long "show-leaf-distance" <> help "Display the distance of the expression from a leaf node")
+              <*> switch (long "show-root-distance" <> help "Display the distance of the expression from a root node")
     where 
           treeCommand :: Mod CommandFields Command
           treeCommand = command "tree" (info (pure Tree) (progDesc "Show a tree of the results"))
@@ -66,13 +68,16 @@ opts = info (config <**> helper)
 -- For use of the "Ingredient" see the repositories Readme.
 main :: IO ()
 main = do Conf {..} <- execParser opts
-          tr'@(test_results, labeled') <- parseCSV target_file
+          print "starting parse..."
+          tr'@(test_results, loc_groups, labeled') <- parseCSV target_file
           let limit = if opt_limit <= 0 then id else take opt_limit
               labeled  = if null ignore then labeled'
                          else let prefixes = map isPrefixOf $ words ignore
                                   anyPrefix loc = any ($ loc) prefixes
-                              in filter (not . anyPrefix . loc_name) labeled'
-              tr = (test_results,labeled)
+                              in filter (not . anyPrefix . (loc_groups IM.!) . loc_group) labeled'
+              tr = (test_results, loc_groups, labeled)
+          -- runRules tr'
+          -- error "done"
           case opt_command of 
             Tree -> putStrLn $ drawForest $ map (fmap show) 
                              $ limit $ genForest labeled
@@ -94,8 +99,8 @@ main = do Conf {..} <- execParser opts
                               then map (\(a,b,_) -> (a,b)) $
                                     sortBy comp $ scaledEvals $ sf tr
                               else sortOn ((\i -> -i) . snd) $ sf tr
-                       ppr ((Label {loc_name=ln, loc_pos=lp}), score) =
-                        ln <> ":" <> show lp <> " " <> show score
+                       ppr ((Label {loc_group=ln, loc_pos=lp}), score) =
+                        (loc_groups IM.! ln) <> ":" <> show (toHpcPos lp) <> " " <> show score
                        
                    in if (show_leaf_distance || show_root_distance)
                       then let ds =  if show_leaf_distance
