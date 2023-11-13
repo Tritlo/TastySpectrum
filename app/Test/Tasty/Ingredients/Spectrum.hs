@@ -14,8 +14,6 @@ import Data.Proxy
 import Data.Typeable
 import Test.Tasty.Options
 
-import Test.Tasty.Ingredients.Spectrum.Types (TastyTestType(..))
-
 import Trace.Hpc.Reflect ( clearTix, examineTix )
 import Trace.Hpc.Mix ( readMix, Mix(..), MixEntry )
 import Trace.Hpc.Tix ( TixModule(..), Tix(Tix), tixModuleName, tixModuleTixs )
@@ -164,10 +162,11 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                 else [0.. (length hpcs)]
                             Nothing -> replicate (length hpcs) 0
 
-             header = "test_name,test_result," ++
+             header = "test_name,test_type,test_result," ++
                        intercalate "," (map show all_exprs)
-             printFunc (s,b,e) =
+             printFunc ((s,tt),b,e) =
                 show s ++ "," ++
+                show tt ++ "," ++
                 show b ++ "," ++
                 intercalate "," (map show e)
              csv = map (printFunc . toRes) spectrums
@@ -187,12 +186,14 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
 -- TODO: Keeps some more names around
 unfoldTastyTests :: 
   TestTree                 -- ^ A collection of Tasty Tests
-  -> [(String, TestTree)]  -- ^ A list of (TestName,Test) with single tests without sub-elements.
+  -> [((String, String), TestTree)]  -- ^ A list of (TestName, TestType, Test
+                                   -- ) with single tests without sub-elements.
 unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs,
                                                     TR.foldGroup = fg}) mempty
-  where fs opts name test = [(name, TR.PlusTestOptions (opts <>) $
+  where fs opts name test = [((name, show (typeOf test)),
+                                    TR.PlusTestOptions (opts <>) $
                                      TR.SingleTest name test)]
-        fg gopts gname = map (\(n,t) -> (gname<>"/"<>n, TR.PlusTestOptions (gopts <>) $ t))
+        fg gopts gname = map (\((n,tt),t) -> ((gname<>"/"<>n, tt), TR.PlusTestOptions (gopts <>) $ t))
 
 
 -- | This function runs a single test - but a single test and a test-collection share the same type in tasty. 
@@ -222,11 +223,3 @@ checkTastyTree timeout test =
       results <- mapM waitUntilDone $ IntMap.elems smap
       return (\_ -> return $ and results)
 
-getTestType :: TestTree -> TastyTestType
-getTestType (TR.TestGroup _ _) = TestGroup
-getTestType (TR.SingleTest name t) | show (typeOf t) == "QC"       = QuickCheck
-                                   | show (typeOf t) == "TestCase" = HUnit
-                                  -- TODO: There will be one for Lua, and one for Golden Tests, but I haven't seen their Strings yet
-                                   | otherwise = Other
-getTestType (TR.PlusTestOptions _ t) = getTestType t
-getTestType _ = Other 

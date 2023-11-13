@@ -7,7 +7,6 @@ module Test.Tasty.Ingredients.Spectrum.Types (
         Label (..),
         TestResults,
         pprLabel,
-        TastyTestType (..),
         module Trace.Hpc.Util
             ) where
 
@@ -43,14 +42,6 @@ pprLabel loc_groups Label{..} =
          p = show $ toHpcPos loc_pos
 
 
-
-data TastyTestType = QuickCheck     -- ^ QuickCheck Property
-                    | HUnit         -- ^ HUnit Test Case
-                    | Lua           -- ^ Lua Tests 
-                    | Golden        -- ^ Golden Tests, comparing Files
-                    | TestGroup     -- ^ Unresolved Group, TestTree etc. 
-                    | Other         -- ^ Trash Bin Class
-
 instance Show Label where
     show (Label {..}) =
         show loc_group ++ "-" ++ show loc_index ++ ":" ++ show loc_pos ++ " " ++ show (loc_evals)
@@ -64,7 +55,7 @@ instance Ord Label where
 
 -- | The fully parsed TestResult consisting of Locations, Tests and their Execution
 type TestResults = (
-    [(String,Bool)], -- ^ A list of (Test,TestStatus). True=Passing Test, False=Failing Test
+    [((String, String), Bool)], -- ^ A list of (TestName,TestType, TestStatus). True=Passing Test, False=Failing Test
     IntMap String,  -- ^ A map that gives the filename of each group of locations
     [Label])          -- ^ The resulting labels and how often they have been executed. The labels also carry the test-status in their loc_evals (see above)
 
