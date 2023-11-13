@@ -7,6 +7,7 @@ module Test.Tasty.Ingredients.Spectrum.Types (
         Label (..),
         TestResults,
         pprLabel,
+        TastyTestType (..),
         module Trace.Hpc.Util
             ) where
 
@@ -41,6 +42,14 @@ pprLabel loc_groups Label{..} =
    where fn = loc_groups IM.! loc_group
          p = show $ toHpcPos loc_pos
 
+
+
+data TastyTestType = QuickCheck     -- ^ QuickCheck Property
+                    | HUnit         -- ^ HUnit Test Case
+                    | Lua           -- ^ Lua Tests 
+                    | Golden        -- ^ Golden Tests, comparing Files
+                    | TestGroup     -- ^ Unresolved Group, TestTree etc. 
+                    | Other         -- ^ Trash Bin Class
 
 instance Show Label where
     show (Label {..}) =
