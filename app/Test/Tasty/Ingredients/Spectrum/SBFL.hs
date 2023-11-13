@@ -14,7 +14,7 @@ totalFailing = snd . totalPassFail
 -- | Returns the number of total failing and passing tests for a given spectrum, over all expressions.
 totalPassFail :: TestResults -> (Integer, Integer)
 totalPassFail (res,_) = (toInteger p, toInteger f)
-  where p = length $ filter id $ map snd res
+  where p = length $ filter id $ map (\(_,_,a)->a) res
         f = length res - p
 
 -- | Returns the number of passing and failing tests for a single spectrum-expression

@@ -34,7 +34,9 @@ instance Ord Label where
   compare = compare `on` loc_index
 
 -- | The fully parsed TestResult consisting of Locations, Tests and their Execution
+-- DevNote: The possible (known) TestTypes are: QC (=QuickCheck), TestCase(=HUnit Test), GROUP (=Should not be seen), UKNOWN/OTHER (=Rest). 
+-- But there should also be Lua, SmallCheck and golden Tests. 
 type TestResults = (
-    [(String,Bool)], -- ^ A list of (Test,TestStatus). True=Passing Test, False=Failing Test
+    [(String,String,Bool)], -- ^ A list of (Test,TestType,TestStatus). True=Passing Test, False=Failing Test
     [Label])          -- ^ The resulting labels and how often they have been executed. The labels also carry the test-status in their loc_evals (see above)
 
