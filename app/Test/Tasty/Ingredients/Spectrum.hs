@@ -163,7 +163,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                 else [0.. (length hpcs)]
                             Nothing -> replicate (length hpcs) 0
 
-             header = "test_name,test_result," ++
+             header = "test_name,test_type,test_result," ++
                        intercalate "," (map show all_exprs)
              printFunc (s,tt,b,e) =
                 show s ++ "," ++
@@ -222,6 +222,8 @@ checkTastyTree timeout test =
       results <- mapM waitUntilDone $ IntMap.elems smap
       return (\_ -> return $ and results)
 
+-- | Returns the type of the Test if possible (as a String). 
+-- We first had a simple type for it, but we consider Strings better for flexibility when new frameworks show up. 
 getTestType :: TestTree -> String
 getTestType (TR.TestGroup _ _) = "GROUP"
 getTestType (TR.SingleTest name t) = show (typeOf t) 
