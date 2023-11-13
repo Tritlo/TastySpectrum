@@ -13,35 +13,57 @@ import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IM
 import Data.IntMap (IntMap)
 
-import Debug.Trace
+import Text.ParserCombinators.ReadP
 
+
+parseLine :: Int -> T.Text -> Maybe ((String,String), Bool, [Integer])
+parseLine num ln | T.null ln = Nothing
+                 | ((r,rs):rest) <- readP_to_S lineParser (T.unpack ln) =
+                    case (rs, rest) of
+                        ("",[]) -> Just r
+                        _ -> error ("got " <> show (r,rs, rest)
+                                     <> " when parsing " <> T.unpack ln)
+  where lineParser :: ReadP ((String,String), Bool, [Integer])
+        lineParser = do t_name <- readS_to_P (reads @String)
+                        char ','
+                        t_type <- readS_to_P (reads @String)
+                        char ','
+                        t_res <- readS_to_P (reads @Bool)
+                        -- We know exactly how many integers we are going to parse
+                        evals <- count num (char ',' >> (readS_to_P $ reads @Integer))
+                        eof
+                        return ((t_name, t_type), t_res, evals)
+
+
+parseHeader :: T.Text -> [(String, (Int,Int,Int,Int))]
+parseHeader ln = case (readP_to_S headerParser $ T.unpack ln) of
+                   [(r,"")] -> r
+                   _ -> error $ "could not parse header " <> (T.unpack ln)
+ where headerParser :: ReadP [(String, (Int,Int,Int,Int))]
+       headerParser = do string "test_name"
+                         char ','
+                         string "test_type"
+                         char ','
+                         string "test_result"
+                         char ','
+                         loc_strs <- sepBy1 (readS_to_P (reads @String)) (char ',')
+                         eof
+                         return $ map parseLoc loc_strs
+        where parseLoc :: String -> (String, (Int,Int,Int,Int))
+              parseLoc inp = (s, fromHpcPos $ read r)
+                where (s, _:r) = span (/= ':') inp
+                            
+                         
+                        
 
 parseCSV :: FilePath -> IO ([((String,String), Bool)], IM.IntMap String, [Label])
 parseCSV target_file = do
           f <- TIO.readFile target_file
           let (h:rs) = T.splitOn (T.pack "\n") f
-              (_:_:_:locs) = map ((\(fn,l) -> ( T.unpack $ T.drop 1 fn,
-                                             fromHpcPos $ read @HpcPos
-                                                        $ T.unpack
-                                                        $ T.dropEnd 1
-                                                        $ T.drop 1 l))
-                                            . T.breakOn (T.pack ":") ) $
-                                            (T.splitOn $ T.pack ",") h
-              -- We need to take care with test-names, as they might have
-              -- commas in them.
-              parseLine ln | (t_name,nrs) <- (T.span (/= '"') . T.drop 1) ln,
-                             (t_type,trs) <- (T.span (/= '"') . T.drop 1) $ T.drop 1 nrs,
-                             (_:t_res:evals) <- (T.splitOn $ T.pack ",") trs,
-                             n <- T.unpack t_name,
-                             t <- T.unpack t_type,
-                             b <- read @Bool $ T.unpack t_res,
-                             e <- map (read @Integer . T.unpack) evals
-                            = Just ((n,t),b,e)
-                           | T.null ln = Nothing
-                           | otherwise = error ("could not parse " <> T.unpack ln)
+              locs = parseHeader h
 
               parsed :: [((String,String), Bool, [Integer])]
-              parsed = mapMaybe parseLine rs
+              parsed = mapMaybe (parseLine (length locs)) rs
                 
               groups = map head $ group $ sort $ map (\(s,_) -> s) $ locs
 
