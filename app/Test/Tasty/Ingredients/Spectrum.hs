@@ -14,8 +14,6 @@ import Data.Proxy
 import Data.Typeable
 import Test.Tasty.Options
 
-import Test.Tasty.Ingredients.Spectrum.Types (TastyTestType(..))
-
 import Trace.Hpc.Reflect ( clearTix, examineTix )
 import Trace.Hpc.Mix ( readMix, Mix(..), MixEntry )
 import Trace.Hpc.Tix ( TixModule(..), Tix(Tix), tixModuleName, tixModuleTixs )
@@ -112,6 +110,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
          spectrums <- forM tests $ \(t_name,test) -> do
             clearTix
             t_res <- checkTastyTree timeout test
+            let t_type = getTestType test
             Tix res <- examineTix
             -- The results are usually quite sparse, so we use an IntMap here,
             -- and only keep track of the non-zero values. We then re-infer the
@@ -126,12 +125,12 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                 -- Otherwise we quickly run out of memory on big projects & test-suites.
                 !new_map = Map.fromList $
                            filter (not . IM.null . snd) $ map simpleRep res
-            return (t_name, t_res, new_map)
+            return (t_name, t_type, t_res, new_map)
         -- Step 1.1: Reduce the tix to only the touched ones.
          -- We only care about locations that have been touched at any point,
          -- unless we're doing a non-sparse spectrum.
          let touched = Map.unionsWith IS.union $
-                       map (\(_,_,m) -> Map.map IM.keysSet m) $
+                       map (\(_,_,_,m) -> Map.map IM.keysSet m) $
                        spectrums
          -- Step 2: Load all mix files from the specified HPC directory
          mixes <- fmap Map.fromList <$>
@@ -151,8 +150,8 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                where to_strings (filename, hpcs) =
                         map (toCanonicalExpr filename) hpcs
 
-             toRes (t_name, t_res, tix_maps) = 
-                (t_name, t_res, concatMap eRes $ Map.assocs mixes)
+             toRes (t_name, t_type, t_res, tix_maps) = 
+                (t_name, t_type, t_res, concatMap eRes $ Map.assocs mixes)
               where -- eRes :: (String, (String, [HpcPos])) -> [Integer]
                     eRes (mod, (_,hpcs)) = 
                         case tix_maps Map.!? mod of
@@ -166,8 +165,9 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
 
              header = "test_name,test_result," ++
                        intercalate "," (map show all_exprs)
-             printFunc (s,b,e) =
+             printFunc (s,tt,b,e) =
                 show s ++ "," ++
+                tt ++ "," ++
                 show b ++ "," ++
                 intercalate "," (map show e)
              csv = map (printFunc . toRes) spectrums
@@ -180,7 +180,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                 writeFile fp (header ++ "\n")
                 mapM_ (appendFile fp . (++ "\n")) csv
 
-         return $ all (\(_,r,_) -> r) spectrums
+         return $ all (\(_,_,r,_) -> r) spectrums
 
 -- | Unfolds a test-collection into single tests. 
 -- The resulting tests are still TestTrees, due to tasty logic and keeping things runnable. 
@@ -222,11 +222,8 @@ checkTastyTree timeout test =
       results <- mapM waitUntilDone $ IntMap.elems smap
       return (\_ -> return $ and results)
 
-getTestType :: TestTree -> TastyTestType
-getTestType (TR.TestGroup _ _) = TestGroup
-getTestType (TR.SingleTest name t) | show (typeOf t) == "QC"       = QuickCheck
-                                   | show (typeOf t) == "TestCase" = HUnit
-                                  -- TODO: There will be one for Lua, and one for Golden Tests, but I haven't seen their Strings yet
-                                   | otherwise = Other
+getTestType :: TestTree -> String
+getTestType (TR.TestGroup _ _) = "GROUP"
+getTestType (TR.SingleTest name t) = show (typeOf t) 
 getTestType (TR.PlusTestOptions _ t) = getTestType t
-getTestType _ = Other 
+getTestType _ = "UKNOWN/OTHER" 
