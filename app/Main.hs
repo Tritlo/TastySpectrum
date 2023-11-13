@@ -68,7 +68,7 @@ opts = info (config <**> helper)
 -- For use of the "Ingredient" see the repositories Readme.
 main :: IO ()
 main = do Conf {..} <- execParser opts
-          tr'@(test_results, loc_groups, labeled') <- parseCSV target_file
+          tr'@(!test_results, !loc_groups, !labeled') <- parseCSV target_file
           let limit = if opt_limit <= 0 then id else take opt_limit
               labeled  = if null ignore then labeled'
                          else let prefixes = map isPrefixOf $ words ignore

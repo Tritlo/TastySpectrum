@@ -1,5 +1,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Test.Tasty.Ingredients.Spectrum.ParseCSV where
 
 import Test.Tasty.Ingredients.Spectrum.Types
@@ -13,59 +15,59 @@ import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IM
 import Data.IntMap (IntMap)
 
-import Text.ParserCombinators.ReadP
+import Data.Attoparsec.Text
+import qualified Data.Attoparsec.Text as AT
 
-
-parseLine :: Int -> T.Text -> Maybe ((String,String), Bool, [Integer])
-parseLine num ln | T.null ln = Nothing
-                 | ((r,rs):rest) <- readP_to_S lineParser (T.unpack ln) =
-                    case (rs, rest) of
-                        ("",[]) -> Just r
-                        _ -> error ("got " <> show (r,rs, rest)
-                                     <> " when parsing " <> T.unpack ln)
-  where lineParser :: ReadP ((String,String), Bool, [Integer])
-        lineParser = do t_name <- readS_to_P (reads @String)
-                        char ','
-                        t_type <- readS_to_P (reads @String)
-                        char ','
-                        t_res <- readS_to_P (reads @Bool)
-                        -- We know exactly how many integers we are going to parse
-                        evals <- count num (char ',' >> (readS_to_P $ reads @Integer))
-                        eof
-                        return ((t_name, t_type), t_res, evals)
-
-
-parseHeader :: T.Text -> [(String, (Int,Int,Int,Int))]
-parseHeader ln = case (readP_to_S headerParser $ T.unpack ln) of
-                   [(r,"")] -> r
-                   _ -> error $ "could not parse header " <> (T.unpack ln)
- where headerParser :: ReadP [(String, (Int,Int,Int,Int))]
-       headerParser = do string "test_name"
-                         char ','
-                         string "test_type"
-                         char ','
-                         string "test_result"
-                         char ','
-                         loc_strs <- sepBy1 (readS_to_P (reads @String)) (char ',')
-                         eof
-                         return $ map parseLoc loc_strs
-        where parseLoc :: String -> (String, (Int,Int,Int,Int))
-              parseLoc inp = (s, fromHpcPos $ read r)
-                where (s, _:r) = span (/= ':') inp
                             
-                         
-                        
+attoParse :: Parser ([(String, (Int,Int,Int,Int))], -- Locs
+                     [((String,String),
+                       Bool, [Integer])]) 
+attoParse = do locs <- parseHeader
+               endOfLine
+               entries <- sepBy1 (parseEntry (length locs)) endOfLine
+               -- endOfInput
+               return (locs, entries)
+  where parseHeader = string "test_name,test_type,test_result,"
+                      >> sepBy1 parseLoc (char ',')
+          where parseLoc :: Parser (String ,(Int,Int,Int,Int))
+                parseLoc = do char '"'
+                              fn <- manyTill anyChar (char ':')
+                              l1 <- manyTill anyChar (char ':')
+                              c1 <- manyTill anyChar (char '-')
+                              l2 <- manyTill anyChar (char ':')
+                              c2 <- manyTill anyChar (char '"')
+                              return (fn, (read @Int l1, read @Int c1,
+                                           read @Int l2, read @Int c2))
+        parseEntry :: Int -> Parser ((String,String), Bool, [Integer])
+        parseEntry num = do t_name <- parseString
+                            char ','
+                            t_type <- parseString
+                            char ','
+                            t_res <- parseBool 
+                            evals <- count num (char ',' >> signed decimal)
+                            return ((T.unpack t_name, T.unpack t_type), t_res, evals)
+        
+        parseBool :: Parser Bool
+        parseBool = choice [string "True" >> return True,
+                            string "False" >> return False]
+        parseString :: Parser T.Text
+        -- We just take until we get an unescaped '"'
+        parseString = do char '"'
+                         (t, _) <- match $ 
+                                    manyTill anyChar (satisfy (/= '\\') >> char '"')
+                         case T.unsnoc t of -- O(1)
+                            Just (t', '"') -> return t'
+                            _ -> fail "Unmatched string!"
+                                     
 
 parseCSV :: FilePath -> IO ([((String,String), Bool)], IM.IntMap String, [Label])
 parseCSV target_file = do
           f <- TIO.readFile target_file
-          let (h:rs) = T.splitOn (T.pack "\n") f
-              locs = parseHeader h
-
-              parsed :: [((String,String), Bool, [Integer])]
-              parsed = mapMaybe (parseLine (length locs)) rs
-                
-              groups = map head $ group $ sort $ map (\(s,_) -> s) $ locs
+          let p_res = parseOnly attoParse f
+          (locs, parsed) <- case p_res of
+                             Left err -> error ("Got error while parsing :" <>  err)
+                             Right r -> return r
+          let groups = map head $ group $ sort $ map (\(s,_) -> s) $ locs
 
               findGroup = Map.fromAscList $ zip groups [0..]
 
@@ -82,7 +84,6 @@ parseCSV target_file = do
               labeled = filter (\(Label _ _ _ v) -> not $ IM.null v) $
                           zipWith3 (\(s,l) i es -> Label (findGroup Map.! s)
                             l i $ keepNonZero es) locs [0..] eval_results
-
           return (test_results, loc_groups, labeled)
 
 
