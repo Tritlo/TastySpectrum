@@ -14,6 +14,8 @@ import Data.Proxy
 import Data.Typeable
 import Test.Tasty.Options
 
+import Test.Tasty.Ingredients.Spectrum.Types (TastyTestType(..))
+
 import Trace.Hpc.Reflect ( clearTix, examineTix )
 import Trace.Hpc.Mix ( readMix, Mix(..), MixEntry )
 import Trace.Hpc.Tix ( TixModule(..), Tix(Tix), tixModuleName, tixModuleTixs )
@@ -220,19 +222,11 @@ checkTastyTree timeout test =
       results <- mapM waitUntilDone $ IntMap.elems smap
       return (\_ -> return $ and results)
 
-
-{-
-Legacy Comment: Ideas on CSV Design
-
-               test status (t_res). A string? Leave it bool for now.
-                       ↓
-         test_name, test_result  , e1 , e2 <- mix_file location
- test_name <-   t1,   y (1/1)    , 1  , 27 <- number of evals
-                t2,   y          , 0  , 17
-                t3,   n (0/1)    , 17 , 5
-                t4,   n          , 5  , 0
-                q1,   n (4/5)    , 7  , 5
-                        ↑
-                      from amount of tests, if < 1 then fail
-think about data format..?
--}
+getTestType :: TestTree -> TastyTestType
+getTestType (TR.TestGroup _ _) = TestGroup
+getTestType (TR.SingleTest name t) | show (typeOf t) == "QC"       = QuickCheck
+                                   | show (typeOf t) == "TestCase" = HUnit
+                                  -- TODO: There will be one for Lua, and one for Golden Tests, but I haven't seen their Strings yet
+                                   | otherwise = Other
+getTestType (TR.PlusTestOptions _ t) = getTestType t
+getTestType _ = Other 

@@ -2,6 +2,7 @@
 module Test.Tasty.Ingredients.Spectrum.Types (
         Label (..),
         TestResults,
+        TastyTestType (..),
         module Trace.Hpc.Util
             ) where
 
@@ -22,6 +23,14 @@ data Label = Label {loc_name :: String,             -- ^ "Speaking" name of the 
 -- Label is a bit complex, but we try to be performant. 
 -- This is why e.g. the Tests are referenced by their index in the tests and not by a String, to save on the comparison.
 -- In a similar matter, non-evaluated statements are not included despite them being in the .csv`s. 
+
+
+data TastyTestType = QuickCheck     -- ^ QuickCheck Property
+                    | HUnit         -- ^ HUnit Test Case
+                    | Lua           -- ^ Lua Tests 
+                    | Golden        -- ^ Golden Tests, comparing Files
+                    | TestGroup     -- ^ Unresolved Group, TestTree etc. 
+                    | Other         -- ^ Trash Bin Class
 
 instance Show Label where
     show (Label {..}) = 
