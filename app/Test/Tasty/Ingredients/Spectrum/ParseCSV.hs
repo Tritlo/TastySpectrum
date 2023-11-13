@@ -44,14 +44,14 @@ parseHeader h = case T.stripPrefix ("test_name,test_type,test_result,") h of
    
 parseEntry :: T.Text -> ((String,String), Bool, [Integer])
 parseEntry t = case p of 
-                Just ((tn,tt),tr,evs) -> ((T.unpack tn, T.unpack tt),tr,evs)
+                Just ((!tn,!tt),!tr,!evs) -> ((T.unpack tn, T.unpack tt),tr,evs)
                 _ -> error $ "invalid entry " <> T.unpack t
-  where p = do (t_name,r) <- parseString t
-               (',', r) <- T.uncons r
-               (t_type,r) <- parseString r
-               (',', r) <- T.uncons r
-               (t_res, r) <- parseBool r
-               (',', r) <- T.uncons r
+  where p = do (!t_name,!r) <- parseString t
+               (',', !r) <- T.uncons r
+               (!t_type,!r) <- parseString r
+               (',', !r) <- T.uncons r
+               (!t_res, !r) <- parseBool r
+               (',', !r) <- T.uncons r
                nums <- return $ map (read @Integer . T.unpack) $ T.splitOn "," r
                return ((t_name,t_type), t_res, nums)
 
@@ -61,6 +61,8 @@ parseEntry t = case p of
                       else if T.isPrefixOf "False" t
                            then (False,) <$> T.stripPrefix "False" t
                            else error ("invalid bool " <> T.unpack t)
+        -- Parses a top level string. Makes sure to not mess up on nested
+        -- strings.
         parseString :: T.Text -> Maybe (T.Text, T.Text)
         parseString s = do ('"',r) <- T.uncons s
                            (str,res) <- go r
