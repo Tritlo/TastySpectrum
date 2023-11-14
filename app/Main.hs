@@ -75,6 +75,8 @@ main = do Conf {..} <- execParser opts
                                   anyPrefix loc = any ($ loc) prefixes
                               in filter (not . anyPrefix . (loc_groups IM.!) . loc_group) labeled'
               tr = (test_results, loc_groups, labeled)
+
+          runRules tr'
           case opt_command of 
             Tree -> putStrLn $ drawForest $ map (fmap show) 
                              $ limit $ genForest labeled

@@ -27,14 +27,23 @@ import Data.Maybe (isJust)
 runRules :: TestResults -> IO ()
 runRules tr@(!test_results, !loc_groups, !labels) = do
     let (!label_map, _, !parents_and_children) = genParentsAndChildren labels
+        !env = Env {test_results= IM.fromAscList $ zip [0..] test_results,
+                    parents_and_children=parents_and_children,
+                    label_map=label_map}
+        rules = [rTFail, rTPass,
+                rTFailFreq, rTPassFreq,
+                rTFailUniqueBranch,
+                rTFailFreqDiffParent] 
+
+    mapM print $ map (\l -> map (\r -> r env l) rules) labels 
 
     error "Rules run!"
 
 
--- TODO: we should allow rules to change the environment.
 data Environment = Env {
-                     test_results :: ![(String, Bool)],
-                     parents_and_children :: !(IntMap ([Int], IntSet))
+                     test_results :: !(IntMap ((String,String),Bool, IntSet)),
+                     parents_and_children :: !(IntMap ([Int], IntSet)),
+                     label_map :: !(IntMap Label)
                    }
 
 type Rule = Environment -> Label -> Double
@@ -49,4 +58,16 @@ rTPass :: Rule
 rTPass _ Label{..} = 
   fromInteger $ (-y) * ( toInteger $ length (filter (>0) $ IM.elems loc_evals))
    where y = 5
+
+rTFailFreq :: Rule
+rTFailFreq (Env{..}) (Label{..}) = 0.0
+    
+rTPassFreq :: Rule
+rTPassFreq (Env{..}) (Label{..}) = 0.0
+
+rTFailUniqueBranch :: Rule
+rTFailUniqueBranch (Env{..}) (Label{..}) = 0.0
+
+rTFailFreqDiffParent :: Rule
+rTFailFreqDiffParent (Env{..}) (Label{..}) = 0.0
 
