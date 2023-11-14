@@ -26,15 +26,15 @@ import Data.Maybe (isJust)
 
 runRules :: TestResults -> IO ()
 runRules tr@(!test_results, !loc_groups, !labels) = do
+    let (!label_map, _, !parents_and_children) = genParentsAndChildren labels
 
-    putStrLn $ drawForest $ map (fmap (\i -> pprLabel loc_groups i))
-                          $ genForest labels
+    error "Rules run!"
 
 
 -- TODO: we should allow rules to change the environment.
 data Environment = Env {
-                     test_results :: [(String, Bool)],
-                     parents_and_children :: IntMap ([Int], IntSet)
+                     test_results :: ![(String, Bool)],
+                     parents_and_children :: !(IntMap ([Int], IntSet))
                    }
 
 type Rule = Environment -> Label -> Double

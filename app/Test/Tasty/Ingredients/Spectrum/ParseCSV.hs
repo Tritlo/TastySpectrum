@@ -16,6 +16,9 @@ import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IM
 import Data.IntMap (IntMap)
 
+import qualified Data.IntSet as IS
+import Data.IntSet (IntSet)
+
 
 
 parseHeader :: T.Text -> [(String, (Int,Int,Int,Int))]
@@ -77,27 +80,34 @@ parseEntry t = case p of
                                     _ -> return (pf,rs)
                     
 
-parseCSV :: FilePath -> IO ([((String,String), Bool)], IM.IntMap String, [Label])
+parseCSV :: FilePath -> IO ([((String,String), Bool, IntSet)], -- ^ A test and its type, result, and the labels involved
+                            IM.IntMap String, -- ^ The filename of each label
+                            [Label] -- ^ The labels
+                            )
 parseCSV target_file = do
           (h:rs) <- T.lines <$> TIO.readFile target_file
           let !locs = parseHeader h 
               !parsed = map parseEntry rs
-              groups = map head $ group $ sort $ map (\(s,_) -> s) $ locs
 
-              findGroup = Map.fromAscList $ zip groups [0..]
+              fn_groups = map head $ group $ sort $ map (\(s,_) -> s) $ locs
+              fn_findGroup = Map.fromAscList $ zip fn_groups [0..]
 
-              loc_groups = IM.fromAscList $ zip [0..] groups
+              loc_groups = IM.fromAscList $ zip [0..] fn_groups
 
-              test_results = map (\(n,r,_) -> (n,r)) parsed
               eval_results = transpose $ map (\(_,r,e) ->
-                                                if r
-                                                then e
+                                                if r then e
                                                 else map negate e) parsed
+              test_results = map (\(n,r,inds)
+                                 -> (n, r, IS.fromAscList $
+                                           map fst $
+                                           filter ((/=0) . snd) $
+                                           zip [0..] inds)) parsed
+             
 
               keepNonZero :: [Integer] -> IntMap Integer
               keepNonZero = IM.fromAscList . filter ((/=0) . snd) . zip [0..]
               labeled = filter (\(Label _ _ _ v) -> not $ IM.null v) $
-                          zipWith3 (\(s,l) i es -> Label (findGroup Map.! s)
+                          zipWith3 (\(s,l) i es -> Label (fn_findGroup Map.! s)
                             l i $ keepNonZero es) locs [0..] eval_results
           return (test_results, loc_groups, labeled)
 

@@ -18,6 +18,7 @@ import Control.Parallel.Strategies (NFData)
 import GHC.Generics (Generic)
 
 import Data.IntMap.Strict as IM
+import Data.IntSet (IntSet)
 
 
 data Label = Label { loc_group :: !Int,               -- ^ Index of the module this label belongs to.
@@ -55,7 +56,9 @@ instance Ord Label where
 
 -- | The fully parsed TestResult consisting of Locations, Tests and their Execution
 type TestResults = (
-    [((String, String), Bool)], -- ^ A list of (TestName,TestType, TestStatus). True=Passing Test, False=Failing Test
+    [((String, String), Bool, IntSet)],
+                -- ^ A list of ((TestName,TestType), TestStatus, InvolvedLabels).
+                --  True=Passing Test, False=Failing Test
     IntMap String,  -- ^ A map that gives the filename of each group of locations
     [Label])          -- ^ The resulting labels and how often they have been executed. The labels also carry the test-status in their loc_evals (see above)
 
