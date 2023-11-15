@@ -25,25 +25,30 @@ import Data.Tree
 import Data.Maybe (isJust)
 
 runRules :: TestResults -> IO ()
-runRules tr@(!test_results, !loc_groups, !labels) = do
-    let (!label_map, _, !parents_and_children) = genParentsAndChildren labels
-        !env = Env {test_results= IM.fromAscList $ zip [0..] test_results,
-                    parents_and_children=parents_and_children,
-                    label_map=label_map}
-        rules = [rTFail, rTPass,
-                rTFailFreq, rTPassFreq,
-                rTFailUniqueBranch,
-                rTFailFreqDiffParent] 
+runRules tr@(test_results, loc_groups, labels) = do
+    let isSorted [] = True
+        isSorted [_] = True
+        isSorted (x:y:xs) = x <= y && isSorted (y:xs)
+    -- let (!label_map, _, !parents_and_children) = genParentsAndChildren labels
+    --     !env = Env { --test_results= IM.fromAscList $ zip [0..] test_results,
+    --                 -- parents_and_children=parents_and_children,
+    --                 -- label_map=label_map
+    --                 }
+    --     rules = [rTFail, rTPass,
+    --             rTFailFreq, rTPassFreq,
+    --             rTFailUniqueBranch,
+    --             rTFailFreqDiffParent] 
 
-    mapM print $ map (\l -> map (\r -> r env l) rules) labels 
-
+    -- mapM print $ map (\l -> map (\r -> r env l) rules) labels 
+    print (isSorted $ map loc_group labels)
+    -- print (isSorted IS.empty $ map loc_group labels)
     error "Rules run!"
 
 
 data Environment = Env {
-                     test_results :: !(IntMap ((String,String),Bool, IntSet)),
-                     parents_and_children :: !(IntMap ([Int], IntSet)),
-                     label_map :: !(IntMap Label)
+                     --test_results :: !(IntMap ((String,String),Bool, IntSet)),
+                     -- parents_and_children :: !(IntMap ([Int], IntSet)),
+                     -- label_map :: !(IntMap Label)
                    }
 
 type Rule = Environment -> Label -> Double
@@ -60,14 +65,14 @@ rTPass _ Label{..} =
    where y = 5
 
 rTFailFreq :: Rule
-rTFailFreq (Env{..}) (Label{..}) = 0.0
+rTFailFreq (_) (Label{..}) = 0.0
     
 rTPassFreq :: Rule
-rTPassFreq (Env{..}) (Label{..}) = 0.0
+rTPassFreq (_) (Label{..}) = 0.0
 
 rTFailUniqueBranch :: Rule
-rTFailUniqueBranch (Env{..}) (Label{..}) = 0.0
+rTFailUniqueBranch (_) (Label{..}) = 0.0
 
 rTFailFreqDiffParent :: Rule
-rTFailFreqDiffParent (Env{..}) (Label{..}) = 0.0
+rTFailFreqDiffParent (_) (Label{..}) = 0.0
 

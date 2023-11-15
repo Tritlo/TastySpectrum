@@ -10,11 +10,13 @@ import Test.Tasty.Ingredients.Spectrum.Types
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Maybe (mapMaybe)
-import Data.List (transpose, group, sort)
+import Data.List (transpose, group, sort, groupOn)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IM
 import Data.IntMap (IntMap)
+
+import Data.Function (on)
 
 import qualified Data.IntSet as IS
 import Data.IntSet (IntSet)
@@ -22,7 +24,7 @@ import Data.IntSet (IntSet)
 
 
 parseHeader :: T.Text -> [(String, (Int,Int,Int,Int))]
-parseHeader h = case T.stripPrefix ("test_name,test_type,test_result,") h of
+parseHeader !h = case T.stripPrefix ("test_name,test_type,test_result,") h of
                   Just r -> map parseLoc $ T.splitOn "," r
                   _ -> error "Invalid header"
   where parseLoc :: T.Text -> (String, (Int,Int,Int,Int))
@@ -46,7 +48,7 @@ parseHeader h = case T.stripPrefix ("test_name,test_type,test_result,") h of
                                    read @Int $ T.unpack c2))
    
 parseEntry :: T.Text -> ((String,String), Bool, [Integer])
-parseEntry t = case p of 
+parseEntry !t = case p of 
                 Just ((!tn,!tt),!tr,!evs) -> ((T.unpack tn, T.unpack tt),tr,evs)
                 _ -> error $ "invalid entry " <> T.unpack t
   where p = do (!t_name,!r) <- parseString t
@@ -86,10 +88,10 @@ parseCSV :: FilePath -> IO ([((String,String), Bool, IntSet)], -- ^ A test and i
                             )
 parseCSV target_file = do
           (h:rs) <- T.lines <$> TIO.readFile target_file
-          let !locs = parseHeader h 
-              !parsed = map parseEntry rs
-
-              fn_groups = map head $ group $ sort $ map (\(s,_) -> s) $ locs
+          let locs = parseHeader h 
+              parsed = map parseEntry rs
+              -- the labels are already in order per group
+              fn_groups = map head $ groupOn fst locs
               fn_findGroup = Map.fromAscList $ zip fn_groups [0..]
 
               loc_groups = IM.fromAscList $ zip [0..] fn_groups
@@ -98,17 +100,18 @@ parseCSV target_file = do
                                                 if r then e
                                                 else map negate e) parsed
               test_results = map (\(n,r,inds)
-                                 -> (n, r, IS.fromAscList $
+                                 -> (n, r, IS.empty {-IS.fromAscList $
                                            map fst $
                                            filter ((/=0) . snd) $
-                                           zip [0..] inds)) parsed
+                                           zip [0..] inds-} )) parsed
              
 
               keepNonZero :: [Integer] -> IntMap Integer
               keepNonZero = IM.fromAscList . filter ((/=0) . snd) . zip [0..]
               labeled = filter (\(Label _ _ _ v) -> not $ IM.null v) $
                           zipWith3 (\(s,l) i es -> Label (fn_findGroup Map.! s)
-                            l i $ keepNonZero es) locs [0..] eval_results
+                            l i  IM.empty) -- $ keepNonZero es)
+                            locs [0..] eval_results
           return (test_results, loc_groups, labeled)
 
 
