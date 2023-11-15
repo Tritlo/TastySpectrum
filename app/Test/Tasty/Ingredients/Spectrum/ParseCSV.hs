@@ -10,7 +10,7 @@ import Test.Tasty.Ingredients.Spectrum.Types
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Maybe (mapMaybe)
-import Data.List (transpose, group, sort, groupOn)
+import Data.List (transpose, group, sort, groupBy)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IM
@@ -84,34 +84,36 @@ parseEntry !t = case p of
 
 parseCSV :: FilePath -> IO ([((String,String), Bool, IntSet)], -- ^ A test and its type, result, and the labels involved
                             IM.IntMap String, -- ^ The filename of each label
-                            [Label] -- ^ The labels
+                            [[Label]] -- ^ The labels, grouped by module
                             )
 parseCSV target_file = do
           (h:rs) <- T.lines <$> TIO.readFile target_file
-          let locs = parseHeader h 
-              parsed = map parseEntry rs
-              -- the labels are already in order per group
-              fn_groups = map head $ groupOn fst locs
-              fn_findGroup = Map.fromAscList $ zip fn_groups [0..]
+          let -- the labels are already in order per group
+              grouped_locs = groupBy ((==) `on` fst) $ parseHeader h
 
-              loc_groups = IM.fromAscList $ zip [0..] fn_groups
-
-              eval_results = transpose $ map (\(_,r,e) ->
-                                                if r then e
-                                                else map negate e) parsed
-              test_results = map (\(n,r,inds)
-                                 -> (n, r, IS.empty {-IS.fromAscList $
-                                           map fst $
-                                           filter ((/=0) . snd) $
-                                           zip [0..] inds-} )) parsed
-             
+              loc_groups = IM.fromAscList $
+                           zipWith (\i g -> (i, fst $ head g)) 
+                             [0..] grouped_locs
 
               keepNonZero :: [Integer] -> IntMap Integer
               keepNonZero = IM.fromAscList . filter ((/=0) . snd) . zip [0..]
-              labeled = filter (\(Label _ _ _ v) -> not $ IM.null v) $
-                          zipWith3 (\(s,l) i es -> Label (fn_findGroup Map.! s)
-                            l i  IM.empty) -- $ keepNonZero es)
-                            locs [0..] eval_results
+
+              eval_results :: [((String,String), Bool, IntMap Integer)]
+              eval_results = map ((\(n,r,e) ->
+                                    (n,r, if r then keepNonZero e
+                                          else negate <$> keepNonZero e))
+                                  . parseEntry) rs
+              test_results = map (\(n,r,es) -> (n,r, IM.keysSet es)) eval_results
+              
+              involved i = mapMaybe (\(i,(_,r,im)) -> (i,) <$> (im IM.!? i)) $ 
+                            zip [0..] eval_results 
+
+              labeled = map (\(group_i, locs) ->
+                                   filter (\(Label _ _ _ v) -> not $ IM.null v) $
+                                    zipWith (\loc_i (s,l) -> 
+                                        Label group_i l loc_i $
+                                        IM.fromAscList $ involved loc_i)
+                                      [0..] locs) $ zip [0..] grouped_locs
           return (test_results, loc_groups, labeled)
 
 

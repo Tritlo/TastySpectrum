@@ -60,5 +60,5 @@ type TestResults = (
                 -- ^ A list of ((TestName,TestType), TestStatus, InvolvedLabels).
                 --  True=Passing Test, False=Failing Test
     IntMap String,  -- ^ A map that gives the filename of each group of locations
-    [Label])          -- ^ The resulting labels and how often they have been executed. The labels also carry the test-status in their loc_evals (see above)
+    [[Label]])          -- ^ The resulting labels and how often they have been executed. The labels also carry the test-status in their loc_evals (see above)
 

@@ -41,7 +41,7 @@ passFail (Label {loc_evals=evals}) = (toInteger p, toInteger f)
 -- | The Tarantula Formula
 -- Relevant Publication: https://dl.acm.org/doi/abs/10.1145/1101908.1101949
 tarantula :: TestResults -> [(Label, Double)]
-tarantula r@(test_results, _, labeled) = pmap (\l -> (l, ttula l)) labeled
+tarantula r@(test_results, _, labeled) = pmap (\l -> (l, ttula l)) $ concat labeled
     where (tp,tf) = totalPassFail r
           ttula label = ftf/(ptp + ftf)
             where (p,f) = passFail label
@@ -52,7 +52,7 @@ tarantula r@(test_results, _, labeled) = pmap (\l -> (l, ttula l)) labeled
 -- Original Paper is from Biology and Genetics, so best SE Paper is likely
 -- https://link.springer.com/article/10.1007/s10664-014-9349-1
 ochiai :: TestResults -> [(Label, Double)]
-ochiai r@(test_results, _, labeled) = pmap (\l -> (l, oc l)) labeled
+ochiai r@(test_results, _, labeled) = pmap (\l -> (l, oc l)) $ concat labeled
     where (_,tf) = totalPassFail r
           oc label = fromInteger f/sqrt (fromInteger $ tf*(p+f))
             where (p,f) = passFail label
@@ -62,7 +62,7 @@ ochiai r@(test_results, _, labeled) = pmap (\l -> (l, oc l)) labeled
 dstar :: Integer -> TestResults -> [(Label, Double)]
 dstar k r@(test_results, _, labeled)
       | k <= 0 = error "DStar requires k>=1"
-      | otherwise = pmap (\l -> (l, ds l)) labeled
+      | otherwise = pmap (\l -> (l, ds l)) $ concat labeled
     where (_,tf) = totalPassFail r
           ds label = (fromInteger f^^k)/fromInteger ((tf - f)+p)
             where (p,f) = passFail label

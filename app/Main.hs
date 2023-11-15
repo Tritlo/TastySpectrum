@@ -74,12 +74,12 @@ main = do Conf {..} <- execParser opts
               labeled  = if null ignore then labeled'
                          else let prefixes = map isPrefixOf $ words ignore
                                   anyPrefix loc = any ($ loc) prefixes
-                              in filter (not . anyPrefix . (loc_groups IM.!) . loc_group) labeled'
+                              in filter (anyPrefix . (loc_groups IM.!) . loc_group . head) labeled'
               tr = (test_results, loc_groups, labeled)
 
           case opt_command of 
             Tree -> putStrLn $ drawForest $ map (fmap show) 
-                             $ limit $ genForest labeled
+                             $ limit $ genForest $ concat labeled
             alg -> let sf = case alg of
                               Tarantula -> tarantula
                               Ochiai -> ochiai
@@ -103,8 +103,8 @@ main = do Conf {..} <- execParser opts
                        
                    in if (show_leaf_distance || show_root_distance)
                       then let ds =  if show_leaf_distance
-                                     then leafDistances labeled
-                                     else rootDistances labeled
+                                     then leafDistances $ concat labeled
+                                     else rootDistances $ concat labeled
                                ppr' b@(l,_) =
                                     ppr b <> " " <> show (ds Map.! l)
                             in mapM_ (putStrLn . ppr') $ limit res

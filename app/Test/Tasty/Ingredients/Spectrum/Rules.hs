@@ -40,7 +40,8 @@ runRules tr@(test_results, loc_groups, labels) = do
     --             rTFailFreqDiffParent] 
 
     -- mapM print $ map (\l -> map (\r -> r env l) rules) labels 
-    print (isSorted $ map loc_group labels)
+    print (isSorted $ map loc_group $ concat labels)
+    print (length labels)
     -- print (isSorted IS.empty $ map loc_group labels)
     error "Rules run!"
 
