@@ -20,6 +20,7 @@ import Data.Function (on)
 
 import qualified Data.IntSet as IS
 import Data.IntSet (IntSet)
+import Data.Semigroup((<>))
 
 
 
@@ -105,7 +106,7 @@ parseCSV target_file = do
                                   . parseEntry) rs
               test_results = map (\(n,r,es) -> (n,r, IM.keysSet es)) eval_results
               
-              involved i = mapMaybe (\(i,(_,r,im)) -> (i,) <$> (im IM.!? i)) $ 
+              involved i = mapMaybe (\(i,(_,r,im)) -> (i,) <$> (IM.lookup i im )) $ 
                             zip [0..] eval_results 
 
               labeled = map (\(group_i, locs) ->

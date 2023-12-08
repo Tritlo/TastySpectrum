@@ -16,6 +16,7 @@ import Data.List (sortOn, isPrefixOf, sortBy)
 import qualified Data.Map as Map
 
 import qualified Data.IntMap.Strict as IM
+import Data.Semigroup((<>))
 
 
 -- | convert Mix files and CSV to a tree.

@@ -20,6 +20,8 @@ import GHC.Generics (Generic)
 import Data.IntMap.Strict as IM
 import Data.IntSet (IntSet)
 
+import Data.Semigroup((<>))
+
 
 data Label = Label { loc_group :: !Int,               -- ^ Index of the module this label belongs to.
                      loc_pos :: !(Int,Int,Int,Int),   -- ^ Source Code position of the given mix index, usually translates to something like 4:6-5:11 (from L4 Column 6 to L5 Column 11)

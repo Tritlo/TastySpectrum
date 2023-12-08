@@ -38,6 +38,7 @@ import Data.List (intercalate)
 import Options.Applicative (metavar)
 
 import Data.IORef
+import Data.Semigroup((<>))
 
 
 
