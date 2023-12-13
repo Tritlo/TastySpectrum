@@ -40,14 +40,36 @@ runRules tr@(test_results, loc_groups, labels) = do
     --             rTFailFreqDiffParent] 
 
     -- mapM print $ map (\l -> map (\r -> r env l) rules) labels 
-    print (isSorted $ map loc_group $ concat labels)
     print (length labels)
+    print (sum $ map length labels)
     -- print (isSorted IS.empty $ map loc_group labels)
+    let total_tests = length test_results
+        total_succesful_tests = length $ filter (\(_,b,_) -> b) test_results
+        total_failing_tests = total_tests - total_succesful_tests
+        env = Env { total_tests=total_tests,
+                    total_succesful_tests = total_succesful_tests, 
+                    loc_groups = loc_groups}
+    print (total_tests, total_failing_tests)
+    
+    mapM_ (print . (\ls -> ruleOnModule env (relevantTests test_results ls) ls)) labels
+
     error "Rules run!"
+
+relevantTests :: [((String, String), Bool, IntSet)] -> [Label]
+              -> [((String, String), Bool, IntSet)]
+relevantTests all_tests labels = filter is_rel all_tests
+   where lset = IS.fromAscList $ map loc_index labels
+         is_rel (_,_,is) = not (IS.disjoint lset is)
+
+ruleOnModule :: Environment -> [((String, String), Bool, IntSet)] -> [Label] -> [Int]
+ruleOnModule env rel_tests module_labels = 
+    [length rel_tests, length module_labels]
 
 
 data Environment = Env {
-                     --test_results :: !(IntMap ((String,String),Bool, IntSet)),
+                      total_tests :: Int,
+                      total_succesful_tests :: Int,
+                      loc_groups :: IntMap String
                      -- parents_and_children :: !(IntMap ([Int], IntSet)),
                      -- label_map :: !(IntMap Label)
                    }
