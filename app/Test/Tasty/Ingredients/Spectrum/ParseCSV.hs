@@ -102,19 +102,21 @@ parseCSV target_file = do
 
               eval_results :: [((String,String), Bool, IntMap Integer)]
               eval_results = map ((\(n,r,e) ->
-                                    (n,r, let knz = traceShowId $ keepNonZero e
-                                          in if ((IM.size knz /= 0)) then (error $ show (n,r))
-                                             else
-                                             if r then knz
+                                    (n,r, let knz = keepNonZero e
+                                          in if r then knz
                                              else negate <$> knz))
                                   . parseEntry) rs
               test_results = map (\(n,r,es) -> (n,r, IM.keysSet es)) eval_results
               
               involved i = mapMaybe (\(i,(_,r,im)) -> (i,) <$> (IM.lookup i im )) $ zip [0..] eval_results 
 
-          mapM_ (print . (\((s,s2),r,im) -> ((s,s2), r, IM.size im))) eval_results
-          let 
-              grouped_loc_index :: [[(Int,(String, (Int, Int, Int, Int)))]]
+          -- [2023-12-30] If we want to see it as it is parsed: 
+          -- mapM_ (print . (\((s,s2),r,im) -> ((s,s2), r, IM.size im))) eval_results
+
+          -- When there are multiple modules, we need to make sure that we
+          -- assign a unique index *globally* and not just within the module.
+          -- Otherwise the "involved" call will be wrong!
+          let grouped_loc_index :: [[(Int,(String, (Int, Int, Int, Int)))]]
               grouped_loc_index = gli 0 grouped_locs
                 where gli !i [] = []
                       gli !i (xs:ys) = xs':(gli i' ys)

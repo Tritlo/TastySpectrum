@@ -113,8 +113,11 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
          spectrums <- forM tests $ \(t_name,test) -> do
             pn <- getTixFileName <$> getProgName
             clearTix
+            -- [2023-12-30]
             -- Make sure to reset the tix before, also in the tix file
-            -- TODO: is this neccessary?
+            -- TODO: is this neccessary? It certainly slows things down...
+            -- but only by about 10% (Pandoc went from 13m11s to 14m29s).
+            -- Better safe than sorry!
             examineTix >>= writeTix pn
             t_res <- checkTastyTree timeout test
             Tix res <- examineTix
@@ -132,9 +135,12 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                 genNewMap res = Map.fromList $
                                  filter (not . IM.null . snd) $ map simpleRep res
                 !new_map = genNewMap res
+            -- [2023-12-30]
             -- Sometimes, programs (like pandoc) do their testing by spawning
             -- commands. For those cases, we see if the new process wrote to
-            -- a tix file and use that instead.
+            -- a tix file and use that instead. Slows us down by a lot though,
+            -- around 242% (Pandoc goes from 4m19s to 14m29s).
+            -- But we get more data!
             !full_map <- if all IM.null (Map.elems new_map)
               then do pn <- getTixFileName <$> getProgName
                       nres <- readTix pn
