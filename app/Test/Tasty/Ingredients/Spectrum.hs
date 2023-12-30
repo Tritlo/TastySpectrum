@@ -16,7 +16,8 @@ import Test.Tasty.Options
 
 import Trace.Hpc.Reflect ( clearTix, examineTix )
 import Trace.Hpc.Mix ( readMix, Mix(..), MixEntry )
-import Trace.Hpc.Tix ( TixModule(..), Tix(Tix), tixModuleName, tixModuleTixs )
+import Trace.Hpc.Tix ( TixModule(..), Tix(Tix), tixModuleName, tixModuleTixs,
+                       getTixFileName, readTix, tixModuleHash, writeTix)
 
 import Control.Concurrent.STM ( atomically, readTVar, retry, TVar )
 import qualified Test.Tasty.Runners as TR
@@ -40,6 +41,7 @@ import Options.Applicative (metavar)
 import Data.IORef
 import Data.Semigroup((<>))
 
+import System.Environment
 
 
 newtype GetTestSpectrum = GetTestSpectrum Bool
@@ -109,7 +111,11 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                             HpcDir str -> str
         -- Step 1: Delete Tix, Run every test in isolation, Retrieve resulting Tix per Test 
          spectrums <- forM tests $ \(t_name,test) -> do
+            pn <- getTixFileName <$> getProgName
             clearTix
+            -- Make sure to reset the tix before, also in the tix file
+            -- TODO: is this neccessary?
+            examineTix >>= writeTix pn
             t_res <- checkTastyTree timeout test
             Tix res <- examineTix
             -- The results are usually quite sparse, so we use an IntMap here,
@@ -123,9 +129,27 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                tixModuleTixs tm
                 -- The bang here is very important, ensuring we evaluate the new_map here. 
                 -- Otherwise we quickly run out of memory on big projects & test-suites.
-                !new_map = Map.fromList $
-                           filter (not . IM.null . snd) $ map simpleRep res
-            return (t_name, t_res, new_map)
+                genNewMap res = Map.fromList $
+                                 filter (not . IM.null . snd) $ map simpleRep res
+                !new_map = genNewMap res
+            -- Sometimes, programs (like pandoc) do their testing by spawning
+            -- commands. For those cases, we see if the new process wrote to
+            -- a tix file and use that instead.
+            !full_map <- if all IM.null (Map.elems new_map)
+              then do pn <- getTixFileName <$> getProgName
+                      nres <- readTix pn
+                      let !new_map' =
+                            case nres of
+                               Nothing -> new_map
+                               Just (Tix res') ->
+                                  -- Make sure it's the same!
+                                  let hashes = map tixModuleHash
+                                  in if hashes res == hashes res'
+                                     then genNewMap res'
+                                     else new_map
+                      return new_map'
+              else return new_map
+            return (t_name, t_res, full_map)
         -- Step 1.1: Reduce the tix to only the touched ones.
          -- We only care about locations that have been touched at any point,
          -- unless we're doing a non-sparse spectrum.
