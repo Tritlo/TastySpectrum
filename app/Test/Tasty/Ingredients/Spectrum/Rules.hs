@@ -49,9 +49,15 @@ runRules tr@(test_results, loc_groups, labels) = do
         env = Env { total_tests=total_tests,
                     total_succesful_tests = total_succesful_tests, 
                     loc_groups = loc_groups}
-    print (total_tests, total_failing_tests)
+        r _ _ = map (\Label{..} -> IM.size loc_evals)
+        rules = [rTFail, rTPass, r]
+    -- print (total_tests, total_failing_tests)
     
-    mapM_ (print . (\ls -> ruleOnModule env (relevantTests test_results ls) ls)) labels
+    mapM_ (\rule ->
+            mapM_ (print . (\ls_mod -> rule env (relevantTests test_results ls_mod) ls_mod)) labels) rules
+    print total_tests
+    print total_succesful_tests
+    print total_failing_tests
 
     error "Rules run!"
 
@@ -61,41 +67,40 @@ relevantTests all_tests labels = filter is_rel all_tests
    where lset = IS.fromAscList $ map loc_index labels
          is_rel (_,_,is) = not (IS.disjoint lset is)
 
-ruleOnModule :: Environment -> [((String, String), Bool, IntSet)] -> [Label] -> [Int]
-ruleOnModule env rel_tests module_labels = 
-    [length rel_tests, length module_labels]
+-- ruleOnModule :: Environment -> [((String, String), Bool, IntSet)] -> [Label] -> [Int]
+-- ruleOnModule env rel_tests module_labels = 
+
 
 
 data Environment = Env {
                       total_tests :: Int,
                       total_succesful_tests :: Int,
                       loc_groups :: IntMap String
-                     -- parents_and_children :: !(IntMap ([Int], IntSet)),
-                     -- label_map :: !(IntMap Label)
                    }
 
-type Rule = Environment -> Label -> Double
+type Rule = Environment -> [((String, String), Bool, IntSet)]
+                        -> [Label] -> [Int]
+
 
 
 rTFail :: Rule
-rTFail _ Label{..} = 
-  fromInteger $ x * (toInteger $ length (filter (< 0) $ IM.elems loc_evals))
-    where x = 3
+rTFail _ _ = map rTFail'
+  where rTFail' Label {..} = length (filter (<0) $ IM.elems loc_evals)
 
 rTPass :: Rule
-rTPass _ Label{..} = 
-  fromInteger $ (-y) * ( toInteger $ length (filter (>0) $ IM.elems loc_evals))
-   where y = 5
+rTPass _ _ = map rTPass'
+  where rTPass' Label {..} = length (filter (>0) $ IM.elems loc_evals)
+
 
 rTFailFreq :: Rule
-rTFailFreq (_) (Label{..}) = 0.0
+rTFailFreq _ _ _ = [0]
     
 rTPassFreq :: Rule
-rTPassFreq (_) (Label{..}) = 0.0
+rTPassFreq _ _ _ = [0]
 
 rTFailUniqueBranch :: Rule
-rTFailUniqueBranch (_) (Label{..}) = 0.0
+rTFailUniqueBranch _ _ _ = [0]
 
 rTFailFreqDiffParent :: Rule
-rTFailFreqDiffParent (_) (Label{..}) = 0.0
+rTFailFreqDiffParent _ _ _  = [0]
 
