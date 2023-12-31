@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 module Test.Tasty.Ingredients.Spectrum.GenForest (
         genForest, leafDistances, rootDistances,
-        genParentsAndChildren      
+        genParentsAndChildren, leafDistanceList
 
         ) where
 
@@ -32,11 +32,14 @@ import qualified Data.List as L
 import Data.Maybe (isJust)
 
 
-
 leafDistances :: [Label] -> Map Label Int
-leafDistances labels = Map.fromList $ map f labels
+leafDistances ls =
+    Map.fromList $ zip ls (leafDistanceList ls)
+
+leafDistanceList :: [Label] -> [Int]
+leafDistanceList labels = map f labels
     where (_, apc, pdc) = genParentsAndChildren labels
-          f l@Label{loc_index=li} = (l, root_dist - shortest_leaf_dist)
+          f l@Label{loc_index=li} = root_dist - shortest_leaf_dist
             where (_,allc) = apc IM.! li
                   root_dist = length $ fst $ pdc IM.! li
                   shortest_leaf_dist =

@@ -51,8 +51,15 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                     total_succesful_tests = total_succesful_tests, 
                     loc_groups = loc_groups}
         r _ _ = map (\Label{..} -> IM.size loc_evals)
-        rules = [rTFail, rTPass, rTFailFreq, rTPassFreq,
-                rTFailUniqueBranch]
+        rules = [rTFail,
+                 rTPass,
+                 rTFailFreq,
+                 rTPassFreq,
+                 rTFailUniqueBranch,
+                 rTarantula,
+                 rOchiai,
+                 rDStar 2,
+                 rASTLeaf]
         -- [2023-12-31]
         -- We run them per group and then per_rule. This allows us to
         -- *stream* the labels into the rules, as far as is allowed,
@@ -84,7 +91,6 @@ relevantTests all_tests labels = filter is_rel all_tests
 -- ruleOnModule env rel_tests module_labels = 
 
 
-
 data Environment = Env {
                       total_tests :: Int,
                       total_succesful_tests :: Int,
@@ -98,7 +104,7 @@ type Rule = Environment -> [((String, String), Bool, IntSet)]
 
 rTFail :: Rule
 rTFail _ _ = map rTFail'
-  where rTFail' Label {..} =  fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+  where rTFail' Label {..} = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
 
 rTPass :: Rule
 rTPass _ _ = map rTPass'
@@ -131,21 +137,42 @@ rTFailUniqueBranch _ rel_tests mod_labels = map score mod_labels
                                             in_tests) neighs 
                             = fromIntegral $ length unique_tests
             where (ps,_) = parents_direct_children IM.! loc_index
-                  in_tests = filter (\(_,_,rel_inds) -> loc_index  `IS.member` rel_inds)
-                             rel_tests
+                  in_tests = filter (\(_,_,rel_inds) ->
+                                      loc_index  `IS.member` rel_inds)
+                                    rel_tests
                   
 
+
+rASTLeaf :: Rule
+rASTLeaf _ _ = map fromIntegral . leafDistanceList
+
+rTarantula :: Rule
+rTarantula Env{..} _ = map ttula
+  where tp = fromIntegral $ total_succesful_tests
+        tf = fromIntegral $ total_tests - total_succesful_tests
+        ttula :: Label -> Double
+        ttula Label{..} = ftf/(ptp + ftf)
+          where f = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+                p = fromIntegral (IM.size loc_evals) - f
+                ftf = f/tf
+                ptp = p/tp
+
+rOchiai :: Rule
+rOchiai Env{..} _ = map ochiai
+  where tf = fromIntegral $ total_tests - total_succesful_tests
+        ochiai :: Label -> Double
+        ochiai Label{..} = f / sqrt (tf *(p+f))
+          where f = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+                p = fromIntegral (IM.size loc_evals) - f
+
+rDStar :: Int ->  Rule
+rDStar k Env{..} _ = map dstar
+  where tf = fromIntegral $ total_tests - total_succesful_tests
+        dstar :: Label -> Double
+        dstar Label{..} = (f ^^ k) / ((tf - f) +p)
+          where f = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+                p = fromIntegral (IM.size loc_evals) - f
+
+-- TODO: This one is *per* test, so we need to iterate over rel_tests here.
 rTFailFreqDiffParent :: Rule
-rTFailFreqDiffParent _ _ = map (const 0)
-
-rFTarantula :: Rule
-rFTarantula _ _ = map (const 0)
-
-rFOchiai :: Rule
-rFOchiai _ _ = map (const 0)
-
-rFDStar :: Rule
-rFDStar _ _ = map (const 0)
-
-rFASTLeaf :: Rule
-rFASTLeaf _ _ = map (const 0)
+rTFailFreqDiffParent _ rel_tests = map (const (0/0))
