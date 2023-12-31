@@ -51,15 +51,17 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                     total_succesful_tests = total_succesful_tests, 
                     loc_groups = loc_groups}
         r _ _ = map (\Label{..} -> IM.size loc_evals)
-        rules = [rTFail,
-                 rTPass,
-                 rTFailFreq,
-                 rTPassFreq,
-                 rTFailUniqueBranch,
-                 rTarantula,
-                 rOchiai,
-                 rDStar 2,
-                 rASTLeaf]
+        rules = [ rTFail
+                , rTPass
+                , rTFailFreq
+                , rTPassFreq
+                , rTFailUniqueBranch
+                , rTarantula
+                , rOchiai
+                , rDStar 2
+                -- , rASTLeaf,
+                -- , rTFailFreqDiffParent
+                ]
         -- [2023-12-31]
         -- We run them per group and then per_rule. This allows us to
         -- *stream* the labels into the rules, as far as is allowed,
