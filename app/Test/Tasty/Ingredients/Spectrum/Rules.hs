@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TupleSections #-}
 module Test.Tasty.Ingredients.Spectrum.Rules where
 
 
@@ -25,7 +26,7 @@ import Data.Tree
 import Data.Maybe (isJust)
 
 runRules :: TestResults -> IO ()
-runRules tr@(test_results, loc_groups, labels) = do
+runRules tr@(test_results, loc_groups, grouped_labels) = do
     let isSorted [] = True
         isSorted [_] = True
         isSorted (x:y:xs) = x <= y && isSorted (y:xs)
@@ -40,8 +41,8 @@ runRules tr@(test_results, loc_groups, labels) = do
     --             rTFailFreqDiffParent] 
 
     -- mapM print $ map (\l -> map (\r -> r env l) rules) labels 
-    print (length labels)
-    print (sum $ map length labels)
+    -- print (length labels)
+    -- print (sum $ map length labels)
     -- print (isSorted IS.empty $ map loc_group labels)
     let total_tests = length test_results
         total_succesful_tests = length $ filter (\(_,b,_) -> b) test_results
@@ -50,16 +51,26 @@ runRules tr@(test_results, loc_groups, labels) = do
                     total_succesful_tests = total_succesful_tests, 
                     loc_groups = loc_groups}
         r _ _ = map (\Label{..} -> IM.size loc_evals)
-        rules = [rTFail, rTPass,r]
-    -- print (total_tests, total_failing_tests)
+        rules = [rTFail, rTPass, rTFailFreq, rTPassFreq,
+                rTFailUniqueBranch]
+        -- [2023-12-31]
+        -- We run them per group and then per_rule. This allows us to
+        -- *stream* the labels into the rules, as far as is allowed,
+        -- though we (sadly) need to parse the whole file first due to
+        -- how it is laid out.
+        results = map (\ls_mod@(Label{loc_group=lc}:_) ->
+                       (loc_groups IM.! lc,
+                        zip (map loc_pos ls_mod) $
+                        L.transpose $
+                        map (\rule ->
+                          rule env (relevantTests test_results ls_mod) ls_mod)
+                          rules)) grouped_labels
+
+    mapM_ (putStrLn . \(fn, rule_results) ->
+                            (fn ++ ":\n"
+                             ++ show rule_results )
+                            ) results
     
-    mapM_ (\rule ->
-            mapM_ (print . (\ls_mod -> rule env (relevantTests test_results ls_mod) ls_mod)) labels) rules
-    print total_tests
-    print total_succesful_tests
-    print total_failing_tests
-    print "failing:"
-    mapM_ print $ filter (\(_,b,_) -> b) test_results
 
     error "Rules run!"
 
@@ -81,28 +92,60 @@ data Environment = Env {
                    }
 
 type Rule = Environment -> [((String, String), Bool, IntSet)]
-                        -> [Label] -> [Int]
+                        -> [Label] -> [Double]
 
 
 
 rTFail :: Rule
 rTFail _ _ = map rTFail'
-  where rTFail' Label {..} = length (filter (<0) $ IM.elems loc_evals)
+  where rTFail' Label {..} =  fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
 
 rTPass :: Rule
 rTPass _ _ = map rTPass'
-  where rTPass' Label {..} = length (filter (>0) $ IM.elems loc_evals)
+  where rTPass' Label {..} = fromIntegral $ length (filter (>0) $ IM.elems loc_evals)
 
-
+-- Number of executions in failing tests
 rTFailFreq :: Rule
-rTFailFreq _ _ _ = [0]
-    
+rTFailFreq _ _ = map rTFailFreq'
+  where rTFailFreq' Label {..} = fromIntegral $ sum (filter (<0) $ IM.elems loc_evals)
+
+-- Number of executions in passing tests
 rTPassFreq :: Rule
-rTPassFreq _ _ _ = [0]
+rTPassFreq _ _ = map rTPassFreq'
+  where rTPassFreq' Label {..} = fromIntegral $ sum (filter (>0) $ IM.elems loc_evals)
+    
 
 rTFailUniqueBranch :: Rule
-rTFailUniqueBranch _ _ _ = [0]
+rTFailUniqueBranch _ rel_tests mod_labels = map score mod_labels
+    where (label_map, all_parents_all_children,
+                      parents_direct_children) = genParentsAndChildren mod_labels
+          score Label{..} | [] <- ps = 0
+                          | (p:_) <- ps,
+                            (_, dc) <- parents_direct_children IM.! p,
+                            neighs <- IS.toList $ IS.delete loc_index dc,
+                            -- tests where this label is executed but not
+                            -- the neighbor
+                            unique_tests <- map (\n -> 
+                                                filter (\(_,_,rel_inds) ->
+                                                  not (n `IS.member` rel_inds))
+                                            in_tests) neighs 
+                            = fromIntegral $ length unique_tests
+            where (ps,_) = parents_direct_children IM.! loc_index
+                  in_tests = filter (\(_,_,rel_inds) -> loc_index  `IS.member` rel_inds)
+                             rel_tests
+                  
 
 rTFailFreqDiffParent :: Rule
-rTFailFreqDiffParent _ _ _  = [0]
+rTFailFreqDiffParent _ _ = map (const 0)
 
+rFTarantula :: Rule
+rFTarantula _ _ = map (const 0)
+
+rFOchiai :: Rule
+rFOchiai _ _ = map (const 0)
+
+rFDStar :: Rule
+rFDStar _ _ = map (const 0)
+
+rFASTLeaf :: Rule
+rFASTLeaf _ _ = map (const 0)
