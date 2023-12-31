@@ -41,8 +41,7 @@ import Options.Applicative (metavar)
 import Data.IORef
 import Data.Semigroup((<>))
 
-import System.Environment
-
+import System.IO (hPutStrLn, stderr)
 
 newtype GetTestSpectrum = GetTestSpectrum Bool
   deriving (Eq, Ord, Typeable)
@@ -111,14 +110,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                             HpcDir str -> str
         -- Step 1: Delete Tix, Run every test in isolation, Retrieve resulting Tix per Test 
          spectrums <- forM tests $ \(t_name,test) -> do
-            pn <- getTixFileName <$> getProgName
             clearTix
-            -- [2023-12-30]
-            -- Make sure to reset the tix before, also in the tix file
-            -- TODO: is this neccessary? It certainly slows things down...
-            -- but only by about 10% (Pandoc went from 13m11s to 14m29s).
-            -- Better safe than sorry!
-            examineTix >>= writeTix pn
             t_res <- checkTastyTree timeout test
             Tix res <- examineTix
             -- The results are usually quite sparse, so we use an IntMap here,
@@ -132,30 +124,18 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                tixModuleTixs tm
                 -- The bang here is very important, ensuring we evaluate the new_map here. 
                 -- Otherwise we quickly run out of memory on big projects & test-suites.
-                genNewMap res = Map.fromList $
-                                 filter (not . IM.null . snd) $ map simpleRep res
+                genNewMap = Map.fromList . filter (not . IM.null . snd) . map simpleRep
                 !new_map = genNewMap res
-            -- [2023-12-30]
+            -- [2023-12-31]
             -- Sometimes, programs (like pandoc) do their testing by spawning
-            -- commands. For those cases, we see if the new process wrote to
-            -- a tix file and use that instead. Slows us down by a lot though,
-            -- around 242% (Pandoc goes from 4m19s to 14m29s).
-            -- But we get more data!
-            !full_map <- if all IM.null (Map.elems new_map)
-              then do pn <- getTixFileName <$> getProgName
-                      nres <- readTix pn
-                      let !new_map' =
-                            case nres of
-                               Nothing -> new_map
-                               Just (Tix res') ->
-                                  -- Make sure it's the same!
-                                  let hashes = map tixModuleHash
-                                  in if hashes res == hashes res'
-                                     then genNewMap res'
-                                     else new_map
-                      return new_map'
-              else return new_map
-            return (t_name, t_res, full_map)
+            -- commands. For those cases, we need to make sure the process
+            -- it spawns is compiled with -fhpc also, and emit a warning.
+            if all IM.null (Map.elems new_map)
+            then let warn = hPutStrLn stderr 
+                 in (warn $ "No expression touched in the test! Make sure spawned"
+                         ++ " commands are compiled with -fhpc.") 
+            else return ()
+            return (t_name, t_res, new_map)
         -- Step 1.1: Reduce the tix to only the touched ones.
          -- We only care about locations that have been touched at any point,
          -- unless we're doing a non-sparse spectrum.
