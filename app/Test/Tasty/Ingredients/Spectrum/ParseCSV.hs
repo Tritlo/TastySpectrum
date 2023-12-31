@@ -108,10 +108,13 @@ parseCSV target_file = do
                                   . parseEntry) rs
               test_results = map (\(n,r,es) -> (n,r, IM.keysSet es)) eval_results
               
-              involved i = mapMaybe (\(i,(_,r,im)) -> (i,) <$> (IM.lookup i im )) $ zip [0..] eval_results 
+              involved loc_i = mapMaybe (\(i,(_,r,im)) -> (i,)
+                                        <$> (IM.lookup loc_i im )) $ zip [0..] eval_results 
 
-          -- [2023-12-30] If we want to see it as it is parsed: 
-          -- mapM_ (print . (\((s,s2),r,im) -> ((s,s2), r, IM.size im))) eval_results
+          -- [2023-12-31] If we want to see it as it is parsed: 
+          -- mapM_ (print . (\((s,s2),r,im) -> ((s,s2), r,
+          --                                   IM.size im,
+          --                                   sum $ IM.elems im))) eval_results
 
           -- When there are multiple modules, we need to make sure that we
           -- assign a unique index *globally* and not just within the module.

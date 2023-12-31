@@ -50,7 +50,7 @@ runRules tr@(test_results, loc_groups, labels) = do
                     total_succesful_tests = total_succesful_tests, 
                     loc_groups = loc_groups}
         r _ _ = map (\Label{..} -> IM.size loc_evals)
-        rules = [rTFail, rTPass, r]
+        rules = [rTFail, rTPass,r]
     -- print (total_tests, total_failing_tests)
     
     mapM_ (\rule ->
@@ -58,6 +58,8 @@ runRules tr@(test_results, loc_groups, labels) = do
     print total_tests
     print total_succesful_tests
     print total_failing_tests
+    print "failing:"
+    mapM_ print $ filter (\(_,b,_) -> b) test_results
 
     error "Rules run!"
 
