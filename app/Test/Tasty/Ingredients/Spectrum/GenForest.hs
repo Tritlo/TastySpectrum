@@ -29,7 +29,7 @@ import qualified Data.List as L
 
 import Data.Either (partitionEithers)
 
-import Data.Maybe (isJust, mapMaybe, maybe)
+import Data.Maybe (isJust, mapMaybe, fromMaybe)
 
 
 leafDistances :: [Label] -> Map Label Int
@@ -38,7 +38,7 @@ leafDistances ls =
 
 leafDistanceList :: [Label] -> [Int]
 leafDistanceList labels =
-    map (maybe (error "leafDistanceList: index not found") id .
+    map (fromMaybe (error "leafDistanceList: index not found") .
          flip L.findIndex levels .  IS.member .  loc_index) labels
     where (_, apc, pdc) = genParentsAndChildren labels
           leaves = IM.keysSet $ IM.filter (IS.null . snd) apc
