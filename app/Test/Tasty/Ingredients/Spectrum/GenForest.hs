@@ -27,9 +27,9 @@ import qualified Data.IntSet as IS
 import Data.IntSet (IntSet)
 import qualified Data.List as L
 
+import Data.Either (partitionEithers)
 
-
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, mapMaybe, maybe)
 
 
 leafDistances :: [Label] -> Map Label Int
@@ -37,17 +37,17 @@ leafDistances ls =
     Map.fromList $ zip ls (leafDistanceList ls)
 
 leafDistanceList :: [Label] -> [Int]
-leafDistanceList labels = map f labels
+leafDistanceList labels =
+    map (maybe (error "leafDistanceList: index not found") id .
+         flip L.findIndex levels .  IS.member .  loc_index) labels
     where (_, apc, pdc) = genParentsAndChildren labels
-          f l@Label{loc_index=li} = root_dist - shortest_leaf_dist
-            where (_,allc) = apc IM.! li
-                  root_dist = length $ fst $ pdc IM.! li
-                  shortest_leaf_dist =
-                    if IS.null allc then 0
-                    else minimum $
-                         map (length . fst . (pdc IM.!)) $
-                         filter (IS.null . snd . (apc IM.!)) $
-                         IS.toList allc
+          leaves = IM.keysSet $ IM.filter (IS.null . snd) apc
+          levels = dists IS.empty leaves
+          dists !sf !n =  if IS.null n' then [n] else (n:dists sf' n')
+            where n' = (IM.keysSet $
+                        IM.filter (not . IS.disjoint  n . snd) pdc) IS.\\ sf'
+                  sf' = sf `IS.union` n
+
                   
 rootDistances :: [Label] -> Map Label Int
 rootDistances labels =
@@ -60,21 +60,31 @@ genParentsAndChildren :: [Label] -> (IntMap Label, -- Map of loc_index to labels
                                      IntMap ([Int], IntSet)) -- Map of parents in order and direct children
 genParentsAndChildren labels = (imap, all_parents_and_children, parent_li_and_children)
   where !imap = IM.fromAscList $ map (\l@Label{loc_index=li} -> (li, l)) labels
+        parents_and_children (Label{loc_pos=p,loc_index=i,loc_group=g}) =
+            mapMaybe (\Label{loc_pos=lp, loc_index=li, loc_group=lg} ->
+                    let hp = toHpcPos p
+                        hlp = toHpcPos lp
+                    in if g == lg && li /= i
+                       then if hp == hlp
+                            -- [2023-31-12] Sometimes two locations
+                            -- have the exact same location. In this case,
+                            -- we assume the *latter* is the child
+                            -- and the *former* is the parent.
+                            then Just $ if li < i then Left li else Right li
+                            else if insideHpcPos hp hlp
+                                 then Just (Left li)
+                                 else if insideHpcPos hlp hp
+                                      then Just (Right li)
+                                      else Nothing
+                    else Nothing) labels
 
-        parents (Label{loc_pos=p,loc_index=i,loc_group=g}) =
-                IS.fromAscList $ map loc_index $
-                        filter (\l@Label{loc_pos=lp, loc_index=li, loc_group=lg} ->
-                                        g == lg &&
-                                        insideHpcPos hp (toHpcPos lp) && li /= i) labels
-            where hp = toHpcPos p
-        children (Label{loc_pos=p, loc_group =g, loc_index=i}) =
-                IS.fromAscList $ map loc_index $
-                        filter (\Label{loc_pos=lp, loc_index=li, loc_group=lg} ->
-                                   g == lg &&
-                                   insideHpcPos (toHpcPos lp) hp  && li /= i) labels
-            where hp = toHpcPos p
         !all_parents_and_children
-            = IM.fromAscList $ map (\l@Label{loc_index=li} -> (li, (parents l, children l))) labels 
+            = IM.fromAscList $
+                map (\l@Label{loc_index=li} ->
+                    (li,(\(p,c) -> (IS.fromAscList p,
+                                    IS.fromAscList c)) $
+                                   partitionEithers $
+                                   parents_and_children l)) labels
 
         direct_parent_and_children li = (direct_parent, direct_children)
             where (ps, cs) = all_parents_and_children IM.! li

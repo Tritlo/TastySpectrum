@@ -59,8 +59,8 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                 , rTarantula
                 , rOchiai
                 , rDStar 2
-                -- , rASTLeaf,
-                -- , rTFailFreqDiffParent
+                , rASTLeaf
+                , rTFailFreqDiffParent
                 ]
         -- [2023-12-31]
         -- We run them per group and then per_rule. This allows us to
@@ -69,7 +69,7 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
         -- how it is laid out.
         results = map (\ls_mod@(Label{loc_group=lc}:_) ->
                        (loc_groups IM.! lc,
-                        zip (map loc_pos ls_mod) $
+                        zip (map ( showPos . loc_pos) ls_mod) $
                         L.transpose $
                         map (\rule ->
                           rule env (relevantTests test_results ls_mod) ls_mod)
@@ -82,6 +82,10 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
     
 
     error "Rules run!"
+
+showPos :: (Int, Int, Int, Int) -> String
+showPos (a,b,c,d) = show a ++ ":" ++ show b
+                           ++ "-" ++ show c ++ ":" ++ show d
 
 relevantTests :: [((String, String), Bool, IntSet)] -> [Label]
               -> [((String, String), Bool, IntSet)]
@@ -142,9 +146,7 @@ rTFailUniqueBranch _ rel_tests mod_labels = map score mod_labels
                   in_tests = filter (\(_,_,rel_inds) ->
                                       loc_index  `IS.member` rel_inds)
                                     rel_tests
-                  
-
-
+-- Counts the distance of a given expression from a leaf
 rASTLeaf :: Rule
 rASTLeaf _ _ = map fromIntegral . leafDistanceList
 
