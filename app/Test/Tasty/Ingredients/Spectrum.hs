@@ -16,7 +16,8 @@ import Test.Tasty.Options
 
 import Trace.Hpc.Reflect ( clearTix, examineTix )
 import Trace.Hpc.Mix ( readMix, Mix(..), MixEntry )
-import Trace.Hpc.Tix ( TixModule(..), Tix(Tix), tixModuleName, tixModuleTixs )
+import Trace.Hpc.Tix ( TixModule(..), Tix(Tix), tixModuleName, tixModuleTixs,
+                       getTixFileName, readTix, tixModuleHash, writeTix)
 
 import Control.Concurrent.STM ( atomically, readTVar, retry, TVar )
 import qualified Test.Tasty.Runners as TR
@@ -40,7 +41,7 @@ import Options.Applicative (metavar)
 import Data.IORef
 import Data.Semigroup((<>))
 
-
+import System.IO (hPutStrLn, stderr)
 
 newtype GetTestSpectrum = GetTestSpectrum Bool
   deriving (Eq, Ord, Typeable)
@@ -123,8 +124,17 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                tixModuleTixs tm
                 -- The bang here is very important, ensuring we evaluate the new_map here. 
                 -- Otherwise we quickly run out of memory on big projects & test-suites.
-                !new_map = Map.fromList $
-                           filter (not . IM.null . snd) $ map simpleRep res
+                genNewMap = Map.fromList . filter (not . IM.null . snd) . map simpleRep
+                !new_map = genNewMap res
+            -- [2023-12-31]
+            -- Sometimes, programs (like pandoc) do their testing by spawning
+            -- commands. For those cases, we need to make sure the process
+            -- it spawns is compiled with -fhpc also, and emit a warning.
+            if all IM.null (Map.elems new_map)
+            then let warn = hPutStrLn stderr 
+                 in (warn $ "No expression touched in the test! Make sure spawned"
+                         ++ " commands are compiled with -fhpc.") 
+            else return ()
             return (t_name, t_res, new_map)
         -- Step 1.1: Reduce the tix to only the touched ones.
          -- We only care about locations that have been touched at any point,

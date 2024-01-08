@@ -22,6 +22,7 @@ import qualified Data.IntSet as IS
 import Data.IntSet (IntSet)
 import Data.Semigroup((<>))
 
+import Debug.Trace (traceShowId)
 
 
 parseHeader :: T.Text -> [(String, (Int,Int,Int,Int))]
@@ -101,20 +102,38 @@ parseCSV target_file = do
 
               eval_results :: [((String,String), Bool, IntMap Integer)]
               eval_results = map ((\(n,r,e) ->
-                                    (n,r, if r then keepNonZero e
-                                          else negate <$> keepNonZero e))
+                                    (n,r, let knz = keepNonZero e
+                                          in if r then knz
+                                             else negate <$> knz))
                                   . parseEntry) rs
               test_results = map (\(n,r,es) -> (n,r, IM.keysSet es)) eval_results
               
-              involved i = mapMaybe (\(i,(_,r,im)) -> (i,) <$> (IM.lookup i im )) $ 
-                            zip [0..] eval_results 
+              involved loc_i = mapMaybe (\(i,(_,r,im)) -> (i,)
+                                        <$> (IM.lookup loc_i im )) $ zip [0..] eval_results 
+
+          -- [2023-12-31] If we want to see it as it is parsed: 
+          -- mapM_ (print . (\((s,s2),r,im) -> ((s,s2), r,
+          --                                   IM.size im,
+          --                                   sum $ IM.elems im))) eval_results
+
+          -- When there are multiple modules, we need to make sure that we
+          -- assign a unique index *globally* and not just within the module.
+          -- Otherwise the "involved" call will be wrong!
+          let grouped_loc_index :: [[(Int,(String, (Int, Int, Int, Int)))]]
+              grouped_loc_index = gli 0 grouped_locs
+                where gli !i [] = []
+                      gli !i (xs:ys) = xs':(gli i' ys)
+                        where xs' = gli_1 i xs
+                              i' = i + length xs'
+                              gli_1 !i (l:ls) = (i,l):(gli_1 (i+1) ls)
+                              gli_1 !i [] = []
 
               labeled = map (\(group_i, locs) ->
                                    filter (\(Label _ _ _ v) -> not $ IM.null v) $
-                                    zipWith (\loc_i (s,l) -> 
+                                    map (\(loc_i,(s,l)) -> 
                                         Label group_i l loc_i $
-                                        IM.fromAscList $ involved loc_i)
-                                      [0..] locs) $ zip [0..] grouped_locs
+                                        IM.fromAscList $ involved loc_i) locs) $
+                                    zip [0..] grouped_loc_index
           return (test_results, loc_groups, labeled)
 
 

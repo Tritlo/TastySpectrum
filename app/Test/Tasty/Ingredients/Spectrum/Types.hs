@@ -22,7 +22,12 @@ import Data.IntSet (IntSet)
 
 import Data.Semigroup((<>))
 
-
+-- | Label is our data type to represent information about a single expression. 
+-- To help with performance, we avoided a real HPC Position in favour of a loc_pos tuple that can be better handled by many libraries.
+-- ! DevNote:
+-- Label is a bit complex, but we try to be performant.
+-- This is why e.g. the Tests are referenced by their index in the tests and not by a String, to save on the comparison.
+-- In a similar matter, non-evaluated statements are not included despite them being in the .csv`s.
 data Label = Label { loc_group :: !Int,               -- ^ Index of the module this label belongs to.
                      loc_pos :: !(Int,Int,Int,Int),   -- ^ Source Code position of the given mix index, usually translates to something like 4:6-5:11 (from L4 Column 6 to L5 Column 11)
                      loc_index :: !Int,               -- ^ The index of the expression in our .csv-file. This is used as a unique identifier.
@@ -32,13 +37,11 @@ data Label = Label { loc_group :: !Int,               -- ^ Index of the module t
                                                       --   It should not have 0`s as we do not account for non-evaluated things in our data structure.
                    } deriving (Generic, NFData)
 
--- ! DevNote:
--- Label is a bit complex, but we try to be performant.
--- This is why e.g. the Tests are referenced by their index in the tests and not by a String, to save on the comparison.
--- In a similar matter, non-evaluated statements are not included despite them being in the .csv`s.
---
-
-pprLabel :: IM.IntMap String -> Label -> String
+-- | Pretty prints (ppr) a label to a human readable HPC Position. 
+pprLabel :: 
+  IM.IntMap String -- ^ an IntMap of the Module ID's and their name
+  -> Label         -- ^ the label to be pretty printed
+  -> String        -- ^ Pretty printed, human readable output matching an HPC Position
 pprLabel loc_groups Label{..} =
     fn <> ":" <> p <> " " <> show loc_evals
    where fn = loc_groups IM.! loc_group

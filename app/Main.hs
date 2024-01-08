@@ -33,6 +33,7 @@ data Config = Conf {
 
 
 data Command = Tree
+            | Rules
             | Tarantula
             | Ochiai
             | DStar Integer
@@ -40,7 +41,7 @@ data Command = Tree
 
 config :: Parser Config
 config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
-              <*> hsubparser (treeCommand <> tarantulaCommand <> ochiaiCommand <> dstarCommand)
+              <*> hsubparser (treeCommand <> rulesCommand <> tarantulaCommand <> ochiaiCommand <> dstarCommand)
               <*> option auto (long "limit" <> value 0 <> short 'n' <> metavar "LIMIT" <> help "The number of results to show")
               <*> (strOption (long "ignore" <> value "" <> metavar "IGNORE" <> help "Paths to ignore (e.g. 'tests/Main.hs src/Data/Module/File.hs')"))
               <*> switch (long "use-scaling" <> help "Use ratio of failing/passing evals to sort identical scores")
@@ -49,6 +50,8 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
     where 
           treeCommand :: Mod CommandFields Command
           treeCommand = command "tree" (info (pure Tree) (progDesc "Show a tree of the results"))
+          rulesCommand :: Mod CommandFields Command
+          rulesCommand = command "rules" (info (pure Rules) (progDesc "Use the rules"))
           tarantulaCommand :: Mod CommandFields Command
           tarantulaCommand = command "tarantula" (info (pure Tarantula) (progDesc "Use the tarantula algorithm"))
           ochiaiCommand :: Mod CommandFields Command
@@ -70,7 +73,6 @@ opts = info (config <**> helper)
 main :: IO ()
 main = do Conf {..} <- execParser opts
           tr'@(test_results, loc_groups, labeled') <- parseCSV target_file
-          runRules tr'
           let limit = if opt_limit <= 0 then id else take opt_limit
               labeled  = if null ignore then labeled'
                          else let prefixes = map isPrefixOf $ words ignore
@@ -81,6 +83,7 @@ main = do Conf {..} <- execParser opts
           case opt_command of 
             Tree -> putStrLn $ drawForest $ map (fmap show) 
                              $ limit $ genForest $ concat labeled
+            Rules -> runRules tr'
             alg -> let sf = case alg of
                               Tarantula -> tarantula
                               Ochiai -> ochiai
