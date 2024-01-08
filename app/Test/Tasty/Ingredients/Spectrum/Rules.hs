@@ -25,6 +25,11 @@ import Data.Tree (drawForest)
 import Data.Tree
 import Data.Maybe (isJust, fromMaybe, mapMaybe)
 
+-- | runRules executes all rules and outputs their results to the console. 
+-- After applying all rules, it terminates the program.
+-- 
+-- DevNote: Some of the rules are "computation heavy", so in order to make things work performant
+-- the rules are scoped per module (when applicable) to have less memory need and less checks to do. 
 runRules :: TestResults -> IO ()
 runRules tr@(test_results, loc_groups, grouped_labels) = do
     let total_tests = length test_results
@@ -44,11 +49,12 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                 ,( "rTarantula", rTarantula)
                 ,( "rOchiai", rOchiai)
                 ,( "rDStar 2", rDStar 2)
+                ,( "rDStar 3", rDStar 3)
                 ,( "rASTLeaf", rASTLeaf)
                 ,( "rTFailFreqDiffParent", rTFailFreqDiffParent)
                 ]
         -- [2023-12-31]
-        -- We run them per group and then per_rule. This allows us to
+        -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
         -- *stream* the labels into the rules, as far as is allowed,
         -- though we (sadly) need to parse the whole file first due to
         -- how it is laid out.
@@ -69,19 +75,22 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                              ++ show rule_results )
                             ) results
 
-
-relevantTests :: [((String, String), Bool, IntSet)] -> [Label]
-              -> IntMap ((String, String), Bool, IntSet)
+-- | Returns an IntMap of all tests touched by a list of statements.
+-- "Touched" means executed in a failing *or* passing test.
+relevantTests :: 
+  [((String, String), Bool, IntSet)] -- ^ A list of all the tests and the labels they touch
+  -> [Label]                         -- ^ All labels (=expression) for which the touched tests are to be determined
+  -> IntMap ((String, String), Bool, IntSet) -- ^ The tests which are touched by any of the labels. The index is reflects the position in the original list of tests.
 relevantTests all_tests labels = IM.fromAscList $ 
                                     filter (is_rel . snd) $
                                     zip [0..] all_tests
    where lset = IS.fromAscList $ map loc_index labels
+         -- | checks for a given Test if a Label is in the executed list (done via Labels' unique loc_index)
          is_rel (_,_,is) = not (IS.disjoint lset is)
 
--- ruleOnModule :: Environment -> [((String, String), Bool, IntSet)] -> [Label] -> [Int]
--- ruleOnModule env rel_tests module_labels = 
 
-
+-- | An `Environment` holds a set of (global) values and can be pre-calculated.
+-- This eases computing some of the rules, mostly the traditional FL formulas (Ochiai, Tarantula, etc.)
 data Environment = Env {
                       total_tests :: Int,
                       total_succesful_tests :: Int,
