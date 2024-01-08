@@ -31,22 +31,21 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
         total_succesful_tests = length $ filter (\(_,b,_) -> b) test_results
         total_failing_tests = total_tests - total_succesful_tests
         showPos :: (Int, Int, Int, Int) -> String
-        showPos (a,b,c,d) = show a ++ ":" ++ show b
-                                ++ "-" ++ show c ++ ":" ++ show d
+        showPos = show . toHpcPos
         env = Env { total_tests=total_tests,
                     total_succesful_tests = total_succesful_tests, 
                     loc_groups = loc_groups}
         r _ _ = map (\Label{..} -> IM.size loc_evals)
-        rules = [ rTFail
-                , rTPass
-                , rTFailFreq
-                , rTPassFreq
-                , rTFailUniqueBranch
-                , rTarantula
-                , rOchiai
-                , rDStar 2
-                , rASTLeaf
-                , rTFailFreqDiffParent
+        rules = [( "rTFail", rTFail)
+                ,( "rTPass", rTPass)
+                ,( "rTFailFreq", rTFailFreq)
+                ,( "rTPassFreq", rTPassFreq)
+                ,( "rTFailUniqueBranch", rTFailUniqueBranch)
+                ,( "rTarantula", rTarantula)
+                ,( "rOchiai", rOchiai)
+                ,( "rDStar 2", rDStar 2)
+                ,( "rASTLeaf", rASTLeaf)
+                ,( "rTFailFreqDiffParent", rTFailFreqDiffParent)
                 ]
         -- [2023-12-31]
         -- We run them per group and then per_rule. This allows us to
@@ -57,17 +56,18 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                        (loc_groups IM.! lc,
                         zip (map (showPos . loc_pos) ls_mod) $
                         L.transpose $
-                        map (\rule ->
+                        map (\(_, rule) ->
                           rule env (relevantTests test_results ls_mod) ls_mod)
                           rules)) grouped_labels
 
+    putStrLn "Rules:"
+    mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
+    putStrLn ""
+    putStrLn "Results:"
     mapM_ (putStrLn . \(fn, rule_results) ->
-                            (fn ++ ":\n  "
+                            ("  " ++ fn ++ ":\n    "
                              ++ show rule_results )
                             ) results
-    
-
-    error "Rules run!"
 
 
 relevantTests :: [((String, String), Bool, IntSet)] -> [Label]
