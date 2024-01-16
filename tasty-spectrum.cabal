@@ -61,7 +61,9 @@ library
                      Test.Tasty.Ingredients.Spectrum.Types,
                      Test.Tasty.Ingredients.Spectrum.ParseCSV,
                      Test.Tasty.Ingredients.Spectrum.SBFL,
-                     Test.Tasty.Ingredients.Spectrum.Rules
+                     Test.Tasty.Ingredients.Spectrum.Rules,
+                     Test.Tasty.Ingredients.Spectrum.Weights
+
 
     ghc-options: -O2
     hs-source-dirs: app/
