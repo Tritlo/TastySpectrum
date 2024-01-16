@@ -13,6 +13,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
 import Data.List (sortOn, foldl')
+import qualified Data.List as L
 import qualified Data.Map.Strict as Map
 import Data.Map (Map)
 
@@ -91,14 +92,26 @@ shuffle g v = do
 machineLearn :: [(String, Bool, [Double])] -> IO [(String, Double)]
 machineLearn inps@((_,_,ws):_) = do
     g <- MWC.createSystemRandom
-    mlp <- initMLP g [length ws, 16, 32, 16]
-    batches <- chunksOf 1000 <$> (shuffle g samples)
+    mlp <- initMLP g [lws, 2*lws, 2*lws]
+    batches <- chunksOf 100 <$> (shuffle g samples)
+    -- TODO: configure parameters from file or CLI
     putStrLn $ "Epochs: "  ++ show (length batches)
-    let optimized_mlp = optimize mlp $ chunksOf 250 samples
+    let optimized_mlp = optimize mlp  batches
+    putStrLn ("Final loss:" ++ show (loss optimized_mlp samples))
+    putStrLn ("Final accuracy:" ++ show (accuracy optimized_mlp samples))
     return $ map (\(s,_,w) -> (s, callMLP optimized_mlp w)) inps
    where
+     lws = length ws
+     all_ws = L.transpose $ map (\(_,_,w) -> w) inps
+     min_w = map minimum all_ws
+     max_w = map maximum all_ws
+     range_w = zipWith (-) max_w min_w
+     normalize = flip (zipWith (/)) range_w
+
      samples :: [([Double], Double)]
-     samples = map (\(s,b,w) -> if b then (w,1) else (w,-1)) inps
+     samples = map (\(s,b,w) ->
+                        if b then (normalize w,1)
+                        else (normalize w,-1)) inps
      callNeuron :: Num a -- we can't specialize to double,
                          -- because this is later used with AD (Reverse)
                 => [a] -> (a -> a) -> Neuron a -> a
@@ -135,19 +148,20 @@ machineLearn inps@((_,_,ws):_) = do
      -- Probably something better is there.
      -- Is this loss?
      loss :: (Fractional a, Ord a) => MLP a -> [([a],a)] -> a
-     loss mlp samples = data_loss + reg_loss
-       where mlp_outs = map (callMLP mlp . fst) samples
+     loss mlp batch = data_loss + reg_loss
+       where mlp_outs = map (callMLP mlp . fst) batch
              losses = zipWith (\(_,label) mlp_out ->
                              reLU (1 + (- label) * mlp_out))
-                         samples mlp_outs
+                         batch mlp_outs
              data_loss = sum losses / fromIntegral (length losses)
              -- L2 regularization
              alpha = 1e-4
              reg_loss = alpha * sum (fmap (\p -> p*p) mlp)
-                             -- without Functor/Foldable:
-                             -- (map (sum .
-                             --      map (sum .
-                             --      map (\p->p*p) . snd)) mlp)
+
+     accuracy :: (Num a, Ord a) => MLP a -> [([a],a)] -> Double
+     accuracy mlp samples = (fromIntegral $ length $ correct) /
+                            (fromIntegral $ length samples)
+      where correct = filter (\(s,l) -> signum (callMLP mlp s) == signum l) samples
 
      optimizeStep :: MLP Double
                   -> [([Double],Double)]  -- samples
@@ -163,8 +177,12 @@ machineLearn inps@((_,_,ws):_) = do
      optimize :: MLP Double -> [[([Double],Double)]] -> MLP Double
      optimize mlp0 batches =
          foldl' (\mlp (epoch, batch) ->
-                 traceShow ("Epoch, Loss:", epoch, loss mlp samples) $
-                 optimizeStep mlp batch (1.0 - 0.9 * (fromIntegral epoch)/(fromIntegral ne)))
+                 (if epoch `mod` 100 == 0
+                 then (traceShow ("Epoch, Loss, Accuracy:", epoch
+                                , loss mlp samples, accuracy mlp samples))
+                 else id) $
+                   let l_r = (1.0 - 0.9 * fromIntegral epoch / fromIntegral ne)
+                   in optimizeStep mlp batch l_r)
                mlp0 
                (zip [0..] batches)
        where ne = length batches
@@ -190,10 +208,6 @@ runWeights fp =
          bug_map :: Map FilePath [HpcPos]
          bug_map = Map.fromList $ map (\(f,ls) -> (f, map top ls)) buggy
             where top (ls,le) = toHpcPos (ls, 0, le, maxBound)
-         -- rand_gen = mkStdGen 79934280 -- Chosen by a fair dice-roll.
-         -- init_weights = take (length rules) $ randomRs (-1,1)  rand_gen
-         -- reduce :: [Double] -> Double
-         -- reduce = sum .  zipWith (*) init_weights
          labelData :: ModuleResult -> [(String, Bool, [Double])]
          labelData (MR fp ws) = 
             map (\(p,w) ->  ((fp ++ ":" ++ show p), lUp fp p,  w)) ws
