@@ -91,10 +91,10 @@ shuffle g v = do
 machineLearn :: [(String, Bool, [Double])] -> IO [(String, Double)]
 machineLearn inps@((_,_,ws):_) = do
     g <- MWC.createSystemRandom
-    mlp <- initMLP g [length ws, 16, 16]
+    mlp <- initMLP g [length ws, 16, 32, 16]
     batches <- chunksOf 1000 <$> (shuffle g samples)
     putStrLn $ "Epochs: "  ++ show (length batches)
-    let optimized_mlp = optimize mlp $ chunksOf 1000 samples
+    let optimized_mlp = optimize mlp $ chunksOf 250 samples
     return $ map (\(s,_,w) -> (s, callMLP optimized_mlp w)) inps
    where
      samples :: [([Double], Double)]
@@ -163,7 +163,7 @@ machineLearn inps@((_,_,ws):_) = do
      optimize :: MLP Double -> [[([Double],Double)]] -> MLP Double
      optimize mlp0 batches =
          foldl' (\mlp (epoch, batch) ->
-                 traceShow ("Epoch, Loss:", epoch, loss mlp batch) $
+                 traceShow ("Epoch, Loss:", epoch, loss mlp samples) $
                  optimizeStep mlp batch (1.0 - 0.9 * (fromIntegral epoch)/(fromIntegral ne)))
                mlp0 
                (zip [0..] batches)
