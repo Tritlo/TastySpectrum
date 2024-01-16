@@ -78,6 +78,9 @@ library
                       ghc,
                       array,
                       parallel,
+                      mwc-random,
+                      ad,
+                      vector,
                       ghc-prim,
                       deepseq
 executable tasty-sbfl

@@ -81,8 +81,7 @@ opts = info (config <**> helper)
 main :: IO ()
 main = do Conf {..} <- execParser opts
           case opt_command of
-            Weights -> do weightsParse target_file
-                          return ()
+            Weights -> runWeights target_file
             _ -> do
                  tr'@(test_results, loc_groups, labeled') <- parseCSV target_file
                  let limit = if opt_limit <= 0 then id else take opt_limit
