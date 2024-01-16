@@ -21,6 +21,7 @@ import qualified System.Random.MWC.Distributions as MWC
 import Control.Monad (replicateM)
 
 import qualified Numeric.AD.Mode.Reverse as AD
+import Debug.Trace
 
 
 data ModuleResult = MR FilePath [(HpcPos, [Double])] 
@@ -79,13 +80,15 @@ machineLearn :: [(String, Bool, [Double])] -> IO [(String, Double)]
 machineLearn inps@((_,_,ws):_) = do
     g <- MWC.createSystemRandom
     mlp <- initMLP g [length ws, 16, 16]
+    
 
     let samples :: [([Double], Double)]
         samples = map (\(s,b,w) -> if b then (w,1) else (w,-1)) inps
         -- TODO find these
-        batches = chunksOf 100 samples
+        batches = chunksOf 1000 samples
         optimized_mlp = optimize mlp batches
 
+    putStrLn $ "Epochs: "  ++ show (length batches)
         
     return $ map (\(s,_,w) -> (s, callMLP optimized_mlp w)) inps
    where
@@ -143,16 +146,17 @@ machineLearn inps@((_,_,ws):_) = do
                      -> [([Double],Double)]  -- samples
                      -> Double
                      -> MLP Double
-        optimizeStep mlp samples learning_rate =
+        optimizeStep mlp batch learning_rate =
             AD.gradWith (\x dx -> x - learning_rate*dx) 
                         (\ad_mlp ->
                             loss 
                               ad_mlp
-                              (map (\(is, o) -> (map AD.auto is, AD.auto o)) samples))
+                              (map (\(is, o) -> (map AD.auto is, AD.auto o)) batch))
                         mlp
         optimize :: MLP Double -> [[([Double],Double)]] -> MLP Double
         optimize mlp0 batches =
             foldl' (\mlp (epoch, batch) ->
+                    traceShow ("Epoch, Loss:", epoch, loss mlp batch) $
                     optimizeStep mlp batch (1.0 - 0.9 * (fromIntegral epoch)/(fromIntegral ne)))
                   mlp0 
                   (zip [0..] batches)
