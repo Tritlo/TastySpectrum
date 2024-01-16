@@ -22,6 +22,7 @@ import Control.Monad (replicateM)
 
 import qualified Numeric.AD.Mode.Reverse as AD
 import Debug.Trace
+import GHC.IOArray
 
 
 data ModuleResult = MR FilePath [(HpcPos, [Double])] 
@@ -73,6 +74,17 @@ chunksOf _ [] = []
 chunksOf n xs = as:(chunksOf n bs)
   where (as, bs) = splitAt n xs
 
+shuffle :: MWC.GenIO -> [a] -> IO [a]
+shuffle g v = do
+  arr <- newIOArray (0, length v -1) undefined 
+  mapM_ (uncurry $ writeIOArray arr) $ zip [0..] v
+  mapM_ (\fi -> do to_i <- MWC.uniformR (fi, length v - 1) g
+                   fe <- readIOArray arr fi
+                   te <- readIOArray arr to_i
+                   writeIOArray arr to_i fe
+                   writeIOArray arr fi te) [0 .. length v - 2]
+  mapM (readIOArray arr) [0.. length v -1]
+
 -- [2024-01-16] Inspired by Karpathy's micrograd, based on 
 -- Quick and dirty backpropagation in Haskell by Mazzo
 -- (https://mazzo.li/posts/haskell-backprop-short.html)
@@ -80,88 +92,83 @@ machineLearn :: [(String, Bool, [Double])] -> IO [(String, Double)]
 machineLearn inps@((_,_,ws):_) = do
     g <- MWC.createSystemRandom
     mlp <- initMLP g [length ws, 16, 16]
-    
-
-    let samples :: [([Double], Double)]
-        samples = map (\(s,b,w) -> if b then (w,1) else (w,-1)) inps
-        -- TODO find these
-        batches = chunksOf 1000 samples
-        optimized_mlp = optimize mlp batches
-
+    batches <- chunksOf 1000 <$> (shuffle g samples)
     putStrLn $ "Epochs: "  ++ show (length batches)
-        
+    let optimized_mlp = optimize mlp $ chunksOf 1000 samples
     return $ map (\(s,_,w) -> (s, callMLP optimized_mlp w)) inps
    where
-        callNeuron :: Num a -- we can't specialize to double,
-                            -- because this is later used with AD (Reverse)
-                   => [a] -> (a -> a) -> Neuron a -> a
-        callNeuron xs activate (N (bias, weights)) =
-          activate (bias + (sum $ zipWith (*) weights xs))
-        -- type Layer :: [Neuron] = [(Double,[Double])]
-        callLayer :: Num a => [a] -> (a -> a) -> Layer a -> [a]
-        callLayer inputs activation (L neurons) =
-            map (callNeuron inputs activation) neurons
-        reLU :: (Num a, Ord a) => a -> a
-        reLU x = if x > 0 then x else 0
+     samples :: [([Double], Double)]
+     samples = map (\(s,b,w) -> if b then (w,1) else (w,-1)) inps
+     callNeuron :: Num a -- we can't specialize to double,
+                         -- because this is later used with AD (Reverse)
+                => [a] -> (a -> a) -> Neuron a -> a
+     callNeuron xs activate (N (bias, weights)) =
+       activate (bias + (sum $ zipWith (*) weights xs))
+     -- type Layer :: [Neuron] = [(Double,[Double])]
+     callLayer :: Num a => [a] -> (a -> a) -> Layer a -> [a]
+     callLayer inputs activation (L neurons) =
+         map (callNeuron inputs activation) neurons
+     reLU :: (Num a, Ord a) => a -> a
+     reLU x = if x > 0 then x else 0
 
-        callMLP :: (Num a, Ord a) => MLP a -> [a] -> a
-        callMLP (MLP layers) inputs =
-          head $ callLayer 
-                 (foldl' (\xs -> callLayer xs reLU) inputs (init layers))
-                 id
-                 (last layers)
+     callMLP :: (Num a, Ord a) => MLP a -> [a] -> a
+     callMLP (MLP layers) inputs =
+       head $ callLayer 
+              (foldl' (\xs -> callLayer xs reLU) inputs (init layers))
+              id
+              (last layers)
 
-        initNeuron :: MWC.GenIO -> Int -> IO (Neuron Double)
-        initNeuron g num_inputs =
-            (N . (0,)) <$> replicateM num_inputs (MWC.uniformR (-1,1) g)
+     initNeuron :: MWC.GenIO -> Int -> IO (Neuron Double)
+     initNeuron g num_inputs =
+         (N . (0,)) <$> replicateM num_inputs (MWC.uniformR (-1,1) g)
 
-        initLayer :: MWC.GenIO -> Int -> Int -> IO (Layer Double)
-        initLayer g num_inputs num_outputs =
-            L <$> replicateM num_outputs (initNeuron g num_inputs)
+     initLayer :: MWC.GenIO -> Int -> Int -> IO (Layer Double)
+     initLayer g num_inputs num_outputs =
+         L <$> replicateM num_outputs (initNeuron g num_inputs)
 
-        initMLP :: MWC.GenIO -> [Int] -> IO (MLP Double)
-        initMLP g input_nums =
-            MLP <$> traverse (uncurry (initLayer g))
-                             (zip input_nums (tail input_nums ++ [1]))
+     initMLP :: MWC.GenIO -> [Int] -> IO (MLP Double)
+     initMLP g input_nums =
+         MLP <$> traverse (uncurry (initLayer g))
+                          (zip input_nums (tail input_nums ++ [1]))
 
-        -- TODO: this is just from karpathys moon example.
-        -- Probably something better is there.
-        -- Is this loss?
-        loss :: (Fractional a, Ord a) => MLP a -> [([a],a)] -> a
-        loss mlp samples = data_loss + reg_loss
-          where mlp_outs = map (callMLP mlp . fst) samples
-                losses = zipWith (\(_,label) mlp_out ->
-                                reLU (1 + (- label) * mlp_out))
-                            samples mlp_outs
-                data_loss = sum losses / fromIntegral (length losses)
-                -- L2 regularization
-                alpha = 1e-4
-                reg_loss = alpha * sum (fmap (\p -> p*p) mlp)
-                                -- without Functor/Foldable:
-                                -- (map (sum .
-                                --      map (sum .
-                                --      map (\p->p*p) . snd)) mlp)
+     -- TODO: this is just from karpathys moon example.
+     -- Probably something better is there.
+     -- Is this loss?
+     loss :: (Fractional a, Ord a) => MLP a -> [([a],a)] -> a
+     loss mlp samples = data_loss + reg_loss
+       where mlp_outs = map (callMLP mlp . fst) samples
+             losses = zipWith (\(_,label) mlp_out ->
+                             reLU (1 + (- label) * mlp_out))
+                         samples mlp_outs
+             data_loss = sum losses / fromIntegral (length losses)
+             -- L2 regularization
+             alpha = 1e-4
+             reg_loss = alpha * sum (fmap (\p -> p*p) mlp)
+                             -- without Functor/Foldable:
+                             -- (map (sum .
+                             --      map (sum .
+                             --      map (\p->p*p) . snd)) mlp)
 
-        optimizeStep :: MLP Double
-                     -> [([Double],Double)]  -- samples
-                     -> Double
-                     -> MLP Double
-        optimizeStep mlp batch learning_rate =
-            AD.gradWith (\x dx -> x - learning_rate*dx) 
-                        (\ad_mlp ->
-                            loss 
-                              ad_mlp
-                              (map (\(is, o) -> (map AD.auto is, AD.auto o)) batch))
-                        mlp
-        optimize :: MLP Double -> [[([Double],Double)]] -> MLP Double
-        optimize mlp0 batches =
-            foldl' (\mlp (epoch, batch) ->
-                    traceShow ("Epoch, Loss:", epoch, loss mlp batch) $
-                    optimizeStep mlp batch (1.0 - 0.9 * (fromIntegral epoch)/(fromIntegral ne)))
-                  mlp0 
-                  (zip [0..] batches)
-          where ne = length batches
-          
+     optimizeStep :: MLP Double
+                  -> [([Double],Double)]  -- samples
+                  -> Double
+                  -> MLP Double
+     optimizeStep mlp batch learning_rate =
+         AD.gradWith (\x dx -> x - learning_rate*dx) 
+                     (\ad_mlp ->
+                         loss 
+                           ad_mlp
+                           (map (\(is, o) -> (map AD.auto is, AD.auto o)) batch))
+                     mlp
+     optimize :: MLP Double -> [[([Double],Double)]] -> MLP Double
+     optimize mlp0 batches =
+         foldl' (\mlp (epoch, batch) ->
+                 traceShow ("Epoch, Loss:", epoch, loss mlp batch) $
+                 optimizeStep mlp batch (1.0 - 0.9 * (fromIntegral epoch)/(fromIntegral ne)))
+               mlp0 
+               (zip [0..] batches)
+       where ne = length batches
+       
             
         
        
@@ -177,8 +184,6 @@ runWeights fp =
          -- not there in the file uff
          buggy = [("src/Text/Pandoc/Writers/Docbook.hs", [(400,500)])]
      
-
-                            
                          
      let non_infinite = map (\(MR fp w) -> MR fp $ filter (\(_,pw)->
                                                not $ any isInfinite pw) w) ws
@@ -198,7 +203,7 @@ runWeights fp =
          labeled_data = concatMap labelData non_infinite
 
      res <- machineLearn labeled_data
-     mapM_ print $ take 10 $ sortOn (negate . snd)  res
+     mapM_ print $ take 20 $ sortOn (negate . snd)  res
      
 
      
