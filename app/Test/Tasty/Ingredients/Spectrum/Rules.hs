@@ -48,6 +48,8 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                 ,( "rTFailUniqueBranch", rTFailUniqueBranch)
                 ,( "rJaccard", rJaccard)
                 ,( "rHamming", rHamming)
+                ,( "rOptimal", rOptimal)
+                ,( "rOptimalP", rOptimalP)
                 ,( "rTarantula", rTarantula)
                 ,( "rOchiai", rOchiai)
                 ,( "rDStar 2", rDStar 2)
@@ -107,8 +109,6 @@ type Rule = Environment -> IntMap ((String, String), Bool, IntSet)
 
 
 -- | Number of failing tests this label is involved in
--- This matches (roughly) the ER1 mentioned in "A Model for Spectra-based Software Diagnosis" by Naish et al.
--- as the formula "Optimal" 
 rTFail :: Rule
 rTFail _ _ = map rTFail'
   where rTFail' Label {..} = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
@@ -210,6 +210,32 @@ rHamming Env{..} _ = map hamming
     hamming Label {..} = fromIntegral (f + total_succesful_tests - p) 
       where f = length (filter (<0) $ IM.elems loc_evals)
             p = (IM.size loc_evals) - f
+
+-- | "Optimal" SBFL as proposed by "A Model for Spectra-based Software Diagnosis".
+rOptimal :: Rule 
+rOptimal Env{..} _ = map optimal
+  where
+    tf = fromIntegral $ total_tests - total_succesful_tests
+    tp = fromIntegral total_succesful_tests
+    optimal :: Label -> Double
+    optimal Label {..} 
+      -- If there are non-covered failures, give -1
+      | fn > 0 = -1 
+      -- Otherwise, give "number of passing tests that are not covered"
+      | otherwise = pc
+      where fc = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+            pc = fromIntegral (IM.size loc_evals) - fc
+            fn = tf - fc
+
+-- | "OptimalP" SBFL as proposed by "A Model for Spectra-based Software Diagnosis".
+rOptimalP :: Rule 
+rOptimalP Env{..} _ = map optimalP
+  where
+    optimalP :: Label -> Double
+    -- "OptimalP" is "number of executed failing tests", minus ("number of passing tests" divided by "number of total tests + 1)
+    optimalP Label {..} = fc - (pc / (fromIntegral total_tests))
+      where fc = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+            pc = fromIntegral (IM.size loc_evals) - fc
 
 -- | Rogot1, as per "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
 -- Original paper is "A proposed index for measuring agreement in test-retest studies" by Rogot et al. 
