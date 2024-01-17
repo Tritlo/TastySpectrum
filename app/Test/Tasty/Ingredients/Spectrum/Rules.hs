@@ -46,10 +46,15 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                 ,( "rTFailFreq", rTFailFreq)
                 ,( "rTPassFreq", rTPassFreq)
                 ,( "rTFailUniqueBranch", rTFailUniqueBranch)
+                ,( "rJaccard", rJaccard)
+                ,( "rHamming", rHamming)
+                ,( "rOptimal", rOptimal)
+                ,( "rOptimalP", rOptimalP)
                 ,( "rTarantula", rTarantula)
                 ,( "rOchiai", rOchiai)
                 ,( "rDStar 2", rDStar 2)
                 ,( "rDStar 3", rDStar 3)
+                ,( "rRogot1", rRogot1)
                 ,( "rASTLeaf", rASTLeaf)
                 ,( "rTFailFreqDiffParent", rTFailFreqDiffParent)
                 ]
@@ -103,7 +108,7 @@ type Rule = Environment -> IntMap ((String, String), Bool, IntSet)
 
 
 
--- Number of failing tests this label is involved in
+-- | Number of failing tests this label is involved in
 rTFail :: Rule
 rTFail _ _ = map rTFail'
   where rTFail' Label {..} = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
@@ -150,7 +155,8 @@ rTFailUniqueBranch _ rel_tests mod_labels = map score mod_labels
 rASTLeaf :: Rule
 rASTLeaf _ _ = map fromIntegral . leafDistanceList
 
--- [2024-01-01] The global tarantula score of this expression
+-- | The (global) tarantula score of this expression
+-- Global refers to "per-spectrum" instead of the "per-module" values of other rules.
 rTarantula :: Rule
 rTarantula Env{..} _ = map ttula
   where tp = fromIntegral $ total_succesful_tests
@@ -162,7 +168,8 @@ rTarantula Env{..} _ = map ttula
                 ftf = f/tf
                 ptp = p/tp
 
--- [2024-01-01] The global ochiai score of this expression
+-- | The (global) ochiai score of this expression
+-- Global refers to "per-spectrum" instead of the "per-module" values of other rules.
 rOchiai :: Rule
 rOchiai Env{..} _ = map ochiai
   where tf = fromIntegral $ total_tests - total_succesful_tests
@@ -171,7 +178,8 @@ rOchiai Env{..} _ = map ochiai
           where f = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
                 p = fromIntegral (IM.size loc_evals) - f
 
--- [2024-01-01] The global DStar score of this expression, parametrized by k
+-- | The (global) DStar score of this expression, parametrized by k
+-- Global refers to "per-spectrum" instead of the "per-module" values of other rules.
 rDStar :: Int ->  Rule
 rDStar k Env{..} _ = map dstar
   where tf = fromIntegral $ total_tests - total_succesful_tests
@@ -179,6 +187,71 @@ rDStar k Env{..} _ = map dstar
         dstar Label{..} = (f ^^ k) / ((tf - f) +p)
           where f = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
                 p = fromIntegral (IM.size loc_evals) - f
+
+-- | Jaccard Distance, taken from "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
+-- Jaccard Distance might be simple, but is in a different equivalence class as proven by "A Model for Spectra-based Software Diagnosis".
+rJaccard :: Rule 
+rJaccard Env{..} _ = map jaccard 
+  where
+    tf = fromIntegral $ total_tests - total_succesful_tests
+    jaccard :: Label -> Double 
+    jaccard Label {..} = f / tf + p 
+      where f = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+            p = fromIntegral (IM.size loc_evals) - f
+
+-- | Hamming Distance, taken from "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
+-- Hamming Distance might be simple, but is in a different equivalence class as proven by "A Model for Spectra-based Software Diagnosis".
+-- [2024-01-15] Is this a bit redundant if we have the other tests too? 
+rHamming :: Rule 
+rHamming Env{..} _ = map hamming 
+  where
+    tf = total_succesful_tests
+    hamming :: Label -> Double 
+    hamming Label {..} = fromIntegral (f + total_succesful_tests - p) 
+      where f = length (filter (<0) $ IM.elems loc_evals)
+            p = (IM.size loc_evals) - f
+
+-- | "Optimal" SBFL as proposed by "A Model for Spectra-based Software Diagnosis".
+rOptimal :: Rule 
+rOptimal Env{..} _ = map optimal
+  where
+    tf = fromIntegral $ total_tests - total_succesful_tests
+    tp = fromIntegral total_succesful_tests
+    optimal :: Label -> Double
+    optimal Label {..} 
+      -- If there are non-covered failures, give -1
+      | fn > 0 = -1 
+      -- Otherwise, give "number of passing tests that are not covered"
+      | otherwise = pc
+      where fc = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+            pc = fromIntegral (IM.size loc_evals) - fc
+            fn = tf - fc
+
+-- | "OptimalP" SBFL as proposed by "A Model for Spectra-based Software Diagnosis".
+rOptimalP :: Rule 
+rOptimalP Env{..} _ = map optimalP
+  where
+    optimalP :: Label -> Double
+    -- "OptimalP" is "number of executed failing tests", minus ("number of passing tests" divided by "number of total tests + 1)
+    optimalP Label {..} = fc - (pc / (fromIntegral total_tests))
+      where fc = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+            pc = fromIntegral (IM.size loc_evals) - fc
+
+-- | Rogot1, as per "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
+-- Original paper is "A proposed index for measuring agreement in test-retest studies" by Rogot et al. 
+-- The other Rogot Formulas fall under already existing equivalence classes as per "A Model for Spectra-based Software Diagnosis" and are left out.
+rRogot1 :: Rule 
+rRogot1 Env{..} _ = map rogot1 
+  where
+    tf = fromIntegral $ total_tests - total_succesful_tests
+    tp = fromIntegral total_succesful_tests
+    rogot1 :: Label -> Double 
+    rogot1 Label {..} =  0.5 * (fc / (2 * fc + fn + pc) + (pn / (2 * pn + fn + pc)))
+      where fc = fromIntegral $ length (filter (<0) $ IM.elems loc_evals)
+            pc = fromIntegral (IM.size loc_evals) - fc
+            -- The "Failing-Not-Covered" are simply (Total_Failing - Failing_And_Covered). Our Failing_And_Covered is fc
+            fn = tf - fc
+            pn = pc - tp 
 
 -- [2024-01-01] Is the sum the right idea here?
 -- **T-FAIL-FREQ-DIFF-PARENT: Bonus if this statement was executed very
