@@ -89,11 +89,11 @@ shuffle g v = do
 -- [2024-01-16] Inspired by Karpathy's micrograd, based on 
 -- Quick and dirty backpropagation in Haskell by Mazzo
 -- (https://mazzo.li/posts/haskell-backprop-short.html)
-machineLearn :: [(String, Bool, [Double])] -> IO [(String, Double)]
-machineLearn inps@((_,_,ws):_) = do
+machineLearn :: LearnParams -> [(String, Bool, [Double])] -> IO [(String, Double)]
+machineLearn (LP network chunk_size l_r_0) inps@((_,_,ws):_) = do
     g <- MWC.createSystemRandom
-    mlp <- initMLP g [lws, 2*lws, 2*lws]
-    batches <- chunksOf 100 <$> (shuffle g samples)
+    mlp <- initMLP g network 
+    batches <- chunksOf chunk_size <$> (shuffle g samples)
     -- TODO: configure parameters from file or CLI
     putStrLn $ "Epochs: "  ++ show (length batches)
     let optimized_mlp = optimize mlp  batches
@@ -181,7 +181,7 @@ machineLearn inps@((_,_,ws):_) = do
                  then (traceShow ("Epoch, Loss, Accuracy:", epoch
                                 , loss mlp samples, accuracy mlp samples))
                  else id) $
-                   let l_r = (1.0 - 0.9 * fromIntegral epoch / fromIntegral ne)
+                   let l_r = (1.0 - l_r_0 * fromIntegral epoch / fromIntegral ne)
                    in optimizeStep mlp batch l_r)
                mlp0 
                (zip [0..] batches)
@@ -189,18 +189,31 @@ machineLearn inps@((_,_,ws):_) = do
        
             
         
-       
+      
+data LearnParams = LP { network :: [Int],
+                        chunk_size :: Int,
+                        l_r_0 :: Double}
+                        deriving (Show, Read)
+
+data Parameters = 
+    Params { bug_locs :: [(FilePath, [(Int,Int)])],
+             machine_parameters :: LearnParams} deriving (Show, Read)
 
 
-
-runWeights :: FilePath -> IO ()
-runWeights fp =
+-- [2024-01-17] Invoked with
+-- $ cabal run tasty-sbfl -- p1-results weights p1-params
+runWeights :: FilePath -> FilePath -> IO ()
+runWeights parameters fp =
   do (rules, ws) <- weightsParse fp
-        
-     -- TODO: read this from a file, this is a test for p1
-     let buggy :: [(FilePath, [(Int,Int)])]
-         -- not there in the file uff
-         buggy = [("src/Text/Pandoc/Writers/Docbook.hs", [(400,500)])]
+     -- [2024-01-17] We read the parameters from a file.
+     -- To generate params, load the repl, create a Parameters object
+     -- and write it to a file, e.g.
+     -- $> writeFile "p1-params" $ show $ 
+     --      Params { bug_locs = [("src/Text/Pandoc/Writers/Docbook.hs",[(400,500)])],
+     --               machine_parameters = LP { network = [11,22,22],
+     --                                         chunk_size = 100,
+     --                                         l_r_0 = 0.9}}
+     Params buggy mp <- read <$> readFile parameters
      
                          
      let non_infinite = map (\(MR fp w) -> MR fp $ filter (\(_,pw)->
@@ -216,7 +229,7 @@ runWeights fp =
                                 _ -> False
          labeled_data = concatMap labelData non_infinite
 
-     res <- machineLearn labeled_data
+     res <- machineLearn mp labeled_data
      mapM_ print $ take 20 $ sortOn (negate . snd)  res
      
 

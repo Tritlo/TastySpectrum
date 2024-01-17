@@ -35,7 +35,7 @@ data Config = Conf {
 
 data Command = Tree
             | Rules
-            | Weights
+            | Weights FilePath
             | Tarantula
             | Ochiai
             | DStar Integer
@@ -58,12 +58,16 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
           treeCommand = command "tree" (info (pure Tree) (progDesc "Show a tree of the results"))
           rulesCommand :: Mod CommandFields Command
           rulesCommand = command "rules" (info (pure Rules) (progDesc "Use the rules"))
-          weightsCommand :: Mod CommandFields Command
-          weightsCommand = command "weights" (info (pure Weights) (progDesc "Use the weights"))
           tarantulaCommand :: Mod CommandFields Command
           tarantulaCommand = command "tarantula" (info (pure Tarantula) (progDesc "Use the tarantula algorithm"))
           ochiaiCommand :: Mod CommandFields Command
           ochiaiCommand = command "ochiai" (info (pure Ochiai) (progDesc "Use the ochiai algorithm"))
+          weightsCommand :: Mod CommandFields Command
+          weightsCommand = command "weights" (info weightsOpts (progDesc "Use the weights"))
+
+          weightsOpts :: Parser Command 
+          weightsOpts = Weights <$> argument str (metavar "PARAMETERS" <> help "Parameters for the weights engine")
+
           dstarCommand :: Mod CommandFields Command
           dstarCommand = command "dstar" (info dstarOpts (progDesc "Use the dstar algorithm with the given k"))
           dstarOpts :: Parser Command
@@ -81,7 +85,7 @@ opts = info (config <**> helper)
 main :: IO ()
 main = do Conf {..} <- execParser opts
           case opt_command of
-            Weights -> runWeights target_file
+            Weights parameters_file -> runWeights parameters_file target_file
             _ -> do
                  tr'@(test_results, loc_groups, labeled') <- parseCSV target_file
                  let limit = if opt_limit <= 0 then id else take opt_limit
