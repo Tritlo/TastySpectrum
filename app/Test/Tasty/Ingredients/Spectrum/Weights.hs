@@ -96,18 +96,16 @@ shuffle g v = do
 -- Quick and dirty backpropagation in Haskell by Mazzo
 -- (https://mazzo.li/posts/haskell-backprop-short.html)
 machineLearn :: LearnParams -> [(String, Bool, [Double])] -> IO [(String, Double)]
-machineLearn (LP network chunk_size l_r_0) inps@((_, _, ws) : _) = do
+machineLearn (LP network chunk_size l_r_0) inps = do
   g <- MWC.createSystemRandom
   mlp <- initMLP g network
   batches <- chunksOf chunk_size <$> (shuffle g samples)
-  -- TODO: configure parameters from file or CLI
   putStrLn $ "Epochs: " ++ show (length batches)
   let optimized_mlp = optimize mlp batches
   putStrLn ("Final loss:" ++ show (loss optimized_mlp samples))
   putStrLn ("Final accuracy:" ++ show (accuracy optimized_mlp samples))
   return $ map (\(s, _, w) -> (s, callMLP optimized_mlp w)) inps
   where
-    lws = length ws
     all_ws = L.transpose $ map (\(_, _, w) -> w) inps
     min_w = map minimum all_ws
     max_w = map maximum all_ws
@@ -162,7 +160,7 @@ machineLearn (LP network chunk_size l_r_0) inps@((_, _, ws) : _) = do
           (uncurry (initLayer g))
           (zip input_nums (tail input_nums ++ [1]))
 
-    -- TODO: this is just from karpathys moon example.
+    -- TODO: this is just from Karpathy's moon example.
     -- Probably something better is there.
     -- Is this loss?
     loss :: (Fractional a, Ord a) => MLP a -> [([a], a)] -> a
