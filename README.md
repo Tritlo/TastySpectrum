@@ -41,6 +41,27 @@ To limit the number of results to the top N expressions (as determined by ALG), 
 
 See `cabal run tasty-sbfl -- --help` for more information.
 
+
+To run from start to finish:
+1. Add the -fhpc flag to the testsuite (and executables if applicable)
+2. Write a `parameter` file for your project into `$DP.params`,
+   where `$DP` is e.g. `p4`, which should look like this:
+    ```
+    Params { bug_locs = [("src/Text/Pandoc/Readers/LaTeX.hs",[(350,350),
+                                                              (371,371),
+                                                              (410,411)])],
+              machine_parameters = LP { network = [20,40,40],
+                                        chunk_size = 250,
+                                        l_r_0 = 0.9}}
+    ```
+3. Run the pipline:
+    ```
+    export DP="p4"
+    cabal test test-pandoc --test-options "--get-spectrum --spectrum-out $(pwd)/$DP.csv --hpc-dir $(pwd)/.hpc"
+    cabal run tasty-sbfl -- $DP.csv rules > $DP.result
+    cabal run tasty-sbfl -- $DP.result weights $DP.params
+    ```
+
 *Testing*: 
 
 We have a few [shelltests](https://github.com/simonmichael/shelltestrunner/tree/master), which you can run with:
