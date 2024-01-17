@@ -72,12 +72,12 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
       -- though we (sadly) need to parse the whole file first due to
       -- how it is laid out.
       results =
-        map
+        pmap
           ( \ls_mod@(Label {loc_group = lc} : _) ->
               ( loc_groups IM.! lc,
                 zip (map (showPos . loc_pos) ls_mod) $
                   L.transpose $
-                    pmap
+                    map
                       ( \(_, rule) ->
                           rule env (relevantTests test_results ls_mod) ls_mod
                       )
