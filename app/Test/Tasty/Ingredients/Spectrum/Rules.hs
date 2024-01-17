@@ -20,10 +20,12 @@ import Data.IntMap (IntMap)
 import qualified Data.IntSet as IS
 import Data.IntSet (IntSet)
 import qualified Data.List as L
+import Data.Function (on)
 
 import Data.Tree (drawForest)
 import Data.Tree
 import Data.Maybe (isJust, fromMaybe, mapMaybe)
+import Control.Parallel.Strategies
 
 -- | runRules executes all rules and outputs their results to the console. 
 -- After applying all rules, it terminates the program.
@@ -58,6 +60,12 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                 ,( "rASTLeaf", rASTLeaf)
                 ,( "rTFailFreqDiffParent", rTFailFreqDiffParent)
                 ]
+
+        meta_rules = [("rTarantulaQuantile", rQuantile "rTarantula")
+                     ,("rOchiaiQuantile"   , rQuantile "rOchiai")
+                     ,("rDStar2Quantile"   , rQuantile "rDStar 2")
+                     ,("rDStar3Quantile"   , rQuantile "rDStar 3")
+                     ]
         -- [2023-12-31]
         -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
         -- *stream* the labels into the rules, as far as is allowed,
@@ -67,18 +75,28 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
                        (loc_groups IM.! lc,
                         zip (map (showPos . loc_pos) ls_mod) $
                         L.transpose $
-                        map (\(_, rule) ->
+                        pmap (\(_, rule) ->
                           rule env (relevantTests test_results ls_mod) ls_mod)
                           rules)) grouped_labels
 
+        pmap :: NFData b => (a -> b) -> [a] -> [b]
+        pmap f = withStrategy (parList rdeepseq) . map f
+
+        rule_names = Map.fromList $ zip (map fst rules ++ map fst meta_rules) [0..]
+        meta_results = L.foldl' (\res (_,meta_rule) ->
+                                    (meta_rule rule_names env) res)
+                                results meta_rules
+
+
     putStrLn "Rules:"
     mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
+    mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
     putStrLn ""
     putStrLn "Results:"
     mapM_ (putStrLn . \(fn, rule_results) ->
                             ("  " ++ fn ++ ":\n    "
                              ++ show rule_results )
-                            ) results
+                            ) meta_results
 
 -- | Returns an IntMap of all tests touched by a list of statements.
 -- "Touched" means executed in a failing *or* passing test.
@@ -106,7 +124,10 @@ type Rule = Environment -> IntMap ((String, String), Bool, IntSet)
                         -> [Label]
                         -> [Double]
 
-
+type MetaRule = Map String Int
+              -> Environment
+              -> [(FilePath, [(String, [Double])])]
+              -> [(FilePath, [(String, [Double])])]
 
 -- | Number of failing tests this label is involved in
 rTFail :: Rule
@@ -273,4 +294,37 @@ rTFailFreqDiffParent _ rel_tests labels = map (sum . res) labels
                     do e <- fromIntegral <$> evs IM.!? test_index
                        pe <- fromIntegral <$> p_evs IM.!? test_index
                        return (e/pe)
+
+-- A meta rule. Computes in what quantile a given score for a given rule is.
+-- Note that the referenced rule must already exist.
+rQuantile :: String -> MetaRule
+rQuantile rule_name r_inds _ r = annotate 0 r
+  where t_ind = r_inds Map.! rule_name
+        ws :: [Double]
+        ws = r >>= (map ((L.!! t_ind) . snd) . snd)
+
+        ind_ws :: [IntSet]
+        ind_ws = map (IS.fromList . map fst) $
+                           L.groupBy ((==) `on` snd) $
+                           L.sortOn snd $ zip [0..] ws
+
+        fi = fromIntegral
+        l_iws = fi $ length ind_ws
+        quantile :: Int -> Double
+        quantile w_i = fi g_i / l_iws
+          where Just g_i = L.findIndex (w_i `IS.member`) ind_ws
+        annotate :: Int
+                 -> [(FilePath, [(String, [Double])])]
+                 -> [(FilePath, [(String, [Double])])]
+        annotate _ [] = []
+        annotate !n ((fp, m):ms) = (fp, m'):(annotate n' ms)
+          where (!n',!m') = annotate' n m
+                annotate' :: Int -> [(String, [Double])]
+                          -> (Int, [(String, [Double])])
+                annotate' !n [] = (n, [])
+                annotate' !n ((s,ds):ls) =
+                    let (fn,ls') = annotate' (n+1) ls
+                        -- Could be optimized, but we only do it once!
+                        ds' = ds ++ [quantile n]
+                    in (fn, (s,ds'):ls')
 
