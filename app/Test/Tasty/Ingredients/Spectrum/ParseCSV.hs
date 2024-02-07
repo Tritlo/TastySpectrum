@@ -10,7 +10,7 @@ import Test.Tasty.Ingredients.Spectrum.Types
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Maybe (mapMaybe)
-import Data.List (transpose, group, sort, groupBy)
+import Data.List (transpose, group, sort, groupBy, sortBy, intercalate)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IM
@@ -82,7 +82,49 @@ parseEntry !t = case p of
                                         do (r2, res2) <- go $ T.drop 1 rs
                                            return (pf <> "\"" <> r2, res2)
                                     _ -> return (pf,rs)
-                    
+               
+-- Compresses a spectrum to the line level
+mergeLines :: ([((String,String), Bool, IntSet)], -- ^ A test and its type, result, and the labels involved
+                            IM.IntMap String, -- ^ The filename of each label
+                            [[Label]] -- ^ The labels, grouped by module
+                            ) -> IO ()
+
+mergeLines (tests,fns,mods) = 
+        do TIO.putStr "test_name,test_type,test_result,"
+           TIO.putStrLn header_info
+           mapM_ (uncurry printTest) $ zip [0..] tests
+          
+  where header_info :: T.Text
+        header_info = T.intercalate (T.pack ",") $ map (\(i,rs) -> (tol i) $ map fst rs) merged_lines
+        tol :: Int -> [(Int,Int)] -> T.Text
+        tol i lns = T.intercalate (T.pack ",") $
+                    map (\(f,t) -> T.pack $ show $ fn ++ ":" ++ (show f) ++":0-"++(show t)++":0") lns
+         where fn = fns IM.! i
+        printTest :: Int -> ((String,String),Bool, IntSet) -> IO ()
+        printTest t_id ((t_name, t_type), t_res, _) =
+            do TIO.putStr $ T.pack $ show t_name ++ "," ++ show t_type ++ "," ++ show t_res ++ ","
+               TIO.putStrLn $ T.intercalate (T.pack ",") $ map (T.pack . show) t_evals
+               
+          where t_evals = map (IM.findWithDefault 0 t_id) test_r
+
+           
+        test_r :: [IntMap Integer]
+        test_r = map snd $ concatMap snd merged_lines
+        merged_lines :: [(Int,[((Int,Int), IntMap Integer)])]
+        merged_lines = map mergeLines' mods
+        mergeLines' :: [Label] -> (Int,[((Int,Int), IntMap Integer)])
+        mergeLines' lbls@(l:_) = (loc_group l, fls)
+         where f l = let (ls, _, le, _) = loc_pos l
+                         li = loc_index l
+                     in (l, (ls,le))
+               fls :: [((Int,Int), IntMap Integer)]
+               fls = map (\gs@(g:_) ->
+                            (snd g,
+                            ((\ls -> IM.unionsWith (+) $ map loc_evals ls)
+                                  . map fst) gs)) $
+                     groupBy ((==) `on` snd) $
+                     sortBy (compare `on` snd) $
+                     map f lbls
 
 parseCSV :: FilePath -> IO ([((String,String), Bool, IntSet)], -- ^ A test and its type, result, and the labels involved
                             IM.IntMap String, -- ^ The filename of each label

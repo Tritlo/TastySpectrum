@@ -39,6 +39,7 @@ data Command = Tree
             | Tarantula
             | Ochiai
             | DStar Integer
+            | MergeLines
   deriving (Show, Eq)
 
 config :: Parser Config
@@ -47,7 +48,9 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
                                           <> weightsCommand
                                           <> tarantulaCommand
                                           <> ochiaiCommand
-                                          <> dstarCommand)
+                                          <> dstarCommand
+                                          <> mergeCommand
+                                          )
               <*> option auto (long "limit" <> value 0 <> short 'n' <> metavar "LIMIT" <> help "The number of results to show")
               <*> (strOption (long "ignore" <> value "" <> metavar "IGNORE" <> help "Paths to ignore (e.g. 'tests/Main.hs src/Data/Module/File.hs')"))
               <*> switch (long "use-scaling" <> help "Use ratio of failing/passing evals to sort identical scores")
@@ -56,6 +59,8 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
     where 
           treeCommand :: Mod CommandFields Command
           treeCommand = command "tree" (info (pure Tree) (progDesc "Show a tree of the results"))
+          mergeCommand :: Mod CommandFields Command
+          mergeCommand = command "merge" (info (pure MergeLines) (progDesc "Merge expressions in the same line in the CSV"))
           rulesCommand :: Mod CommandFields Command
           rulesCommand = command "rules" (info (pure Rules) (progDesc "Use the rules"))
           tarantulaCommand :: Mod CommandFields Command
@@ -99,6 +104,7 @@ main = do Conf {..} <- execParser opts
                    Tree -> putStrLn $ drawForest $ map (fmap show) 
                                     $ limit $ genForest $ concat labeled
                    Rules -> runRules tr'
+                   MergeLines -> mergeLines tr'
                    
                    alg -> let sf = case alg of
                                      Tarantula -> tarantula
