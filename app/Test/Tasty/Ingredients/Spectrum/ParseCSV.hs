@@ -120,7 +120,7 @@ mergeLines (tests,fns,mods) =
                fls :: [((Int,Int), IntMap Integer)]
                fls = map (\gs@(g:_) ->
                             (snd g,
-                            ((\ls -> IM.unionsWith (+) $ map loc_evals ls)
+                            ((\ls -> IM.unionsWith (+) $ map (IM.map abs . loc_evals) ls)
                                   . map fst) gs)) $
                      groupBy ((==) `on` snd) $
                      sortBy (compare `on` snd) $
