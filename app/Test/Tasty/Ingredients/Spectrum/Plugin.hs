@@ -5,6 +5,7 @@ module Test.Tasty.Ingredients.Spectrum.Plugin where
 import GHC
 import qualified Data.Map as Map
 import System.FilePath as FP
+import System.Directory as Dir
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins
 import GHC.Iface.Ext.Types
@@ -37,6 +38,7 @@ locationTyper args mod env = do
         renamed = (rnd , tcg_rn_imports env, tcg_rn_exports env, tcg_doc_hdr env)
 
     dflags <- getDynFlags
+    --TODO: if the hie_file already exists, we don't need to recreate it.
     hsc <- getTopEnv
     HieFile {hie_asts=HieASTs{getAsts = asts},
              hie_types=tys} <- liftIO $ runHsc hsc $ mkHieFile mod env renamed
@@ -64,6 +66,10 @@ locationTyper args mod env = do
         rendered = map renderNode hfs
 
     let mns = moduleNameString (ms_mod_name mod)
-        hdir = hpcDir dflags
-    liftIO $ writeFile (hdir FP.</> (mns ++ ".types")) $ show rendered
+        hpc_dir = hpcDir dflags
+        -- same as for hpc
+        hpc_mod_dir | moduleUnitId (ms_mod mod) == mainUnitId = hpc_dir
+                    | otherwise = hpc_dir FP.</> (unitIdString (moduleUnitId $ ms_mod mod))
+    liftIO $ Dir.createDirectoryIfMissing True hpc_mod_dir
+    liftIO $ writeFile (hpc_mod_dir FP.</> (mns ++ ".types")) $ show rendered
     return env
