@@ -1,4 +1,5 @@
 packages: .
           TestPlugin/
+          plugin/
 
 tests: True
