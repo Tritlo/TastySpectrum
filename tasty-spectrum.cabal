@@ -83,8 +83,7 @@ library
                       ad,
                       vector,
                       ghc-prim,
-                      deepseq,
-                      lens
+                      deepseq
 executable tasty-sbfl
   default-language: Haskell2010
   main-is: app/Main.hs

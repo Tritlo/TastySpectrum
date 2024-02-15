@@ -1,35 +1,64 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE RecordWildCards #-}
 module Test.Tasty.Ingredients.Spectrum.Plugin where
 
-import Control.Lens (universeOf)
-import Data.Data.Lens (uniplate)
-
-
-import GHC.Plugins
 import GHC
-import GHC.Hs.Syn.Type (lhsExprType)
+import qualified Data.Map as Map
+#if __GLASGOW_HASKELL__ >= 900
+import GHC.Plugins
+import GHC.Iface.Ext.Types
+import GHC.Iface.Ext.Utils
+import GHC.Iface.Ext.Ast
 import GHC.Tc.Types
-import GHC.Types.SourceText
+import GHC.Tc.Utils.Monad
+#else
+import GhcPlugins
+import TcRnTypes
+import HieAst
+import TcRnMonad
+import HieTypes
+import HieUtils
+#endif
 
-plugin :: Plugin 
+
+
+plugin :: Plugin
 plugin = defaultPlugin {
-    typeCheckResultAction = locationTyper 
+    renamedResultAction = keepRenamedSource,
+    typeCheckResultAction = locationTyper
 }
 
 
+
+locationTyper :: [CommandLineOption] -> ModSummary -> TcGblEnv -> TcM TcGblEnv
 locationTyper args mod env = do
-    let fbs = HsValBinds noAnn $ ValBinds mempty (tcg_binds env) []
-        fakeLet = noLocA $ HsLet noExtField noHsTok fbs noHsTok xpr
-        xpr = noLocA $ HsLit noAnn $ HsChar NoSourceText ' '
-        flattenProgram :: LHsExpr GhcTc -> [LHsExpr GhcTc]
-        flattenProgram = universeOf uniplate
-        allTypes = map (\e -> (getLocA e, lhsExprType e)) $
-                        filter (isGoodSrcSpan . getLocA) $
-                        flattenProgram fakeLet
-        ss :: Outputable p => p -> String
-        ss = showSDocUnsafe . ppr
+    let Just rnd = tcg_rn_decls env
+        renamed = (rnd , tcg_rn_imports env, tcg_rn_exports env, tcg_doc_hdr env)
 
-    liftIO $ mapM_ (\(l,t) -> putStrLn $
-                        ss l ++ ": " ++ ss t) allTypes
+    dflags <- getDynFlags
+    hsc <- getTopEnv
+    HieFile {hie_asts=HieASTs{getAsts = asts},
+             hie_types=tys} <- liftIO $ runHsc hsc $ mkHieFile mod env renamed
+    let render_ty ti = renderHieType dflags (recoverFullType ti tys)
+        hfs = concatMap flattenAst $ Map.elems asts
+        renderSpan rsp = concat [f, ":",ssl, ":", ssc, "-" , sel, ":", sec]
+            where ssl = show $ srcSpanStartLine rsp
+                  ssc = show $ srcSpanStartCol rsp
+                  sel = show $ srcSpanEndLine rsp
+                  sec = show $ srcSpanEndCol rsp
+                  f = unpackFS $ srcSpanFile rsp
+        renderNode :: HieAST TypeIndex -> (String, [String])
+#if __GLASGOW_HASKELL__ > 810
+        ufs (LexicalFastString fs) = unpackFS fs
+        renderNode (Node inf span _)  = (renderSpan span,  renderSourceInfo inf)
+        renderSourceInfo (SourcedNodeInfo mp) = case mp Map.!? SourceInfo of
+                                                 Just inf -> renderInfo inf
+                                                 _ -> []
+#else
+        ufs = unpackFS
+        renderNode (Node inf span _)  = (renderSpan span,  renderInfo inf)
+#endif
+        renderInfo NodeInfo {nodeType = ty} = map render_ty ty
 
-
+    liftIO $ mapM_ (print .  renderNode ) hfs
     return env
