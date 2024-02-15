@@ -48,9 +48,9 @@ parseHeader !h = case T.stripPrefix ("test_name,test_type,test_result,") h of
                                    read @Int $ T.unpack c1,
                                    read @Int $ T.unpack l2,
                                    read @Int $ T.unpack c2))
-   
+
 parseEntry :: T.Text -> ((String,String), Bool, [Integer])
-parseEntry !t = case p of 
+parseEntry !t = case p of
                 Just ((!tn,!tt),!tr,!evs) -> ((T.unpack tn, T.unpack tt),tr,evs)
                 _ -> error $ "invalid entry " <> T.unpack t
   where p = do (!t_name,!r) <- parseString t
@@ -82,18 +82,18 @@ parseEntry !t = case p of
                                         do (r2, res2) <- go $ T.drop 1 rs
                                            return (pf <> "\"" <> r2, res2)
                                     _ -> return (pf,rs)
-               
+
 -- Compresses a spectrum to the line level
 mergeLines :: ([((String,String), Bool, IntSet)], -- ^ A test and its type, result, and the labels involved
                             IM.IntMap String, -- ^ The filename of each label
                             [[Label]] -- ^ The labels, grouped by module
                             ) -> IO ()
 
-mergeLines (tests,fns,mods) = 
+mergeLines (tests,fns,mods) =
         do TIO.putStr "test_name,test_type,test_result,"
            TIO.putStrLn header_info
            mapM_ (uncurry printTest) $ zip [0..] tests
-          
+
   where header_info :: T.Text
         header_info = T.intercalate (T.pack ",") $ map (\(i,rs) -> (tol i) $ map fst rs) merged_lines
         tol :: Int -> [(Int,Int)] -> T.Text
@@ -104,10 +104,10 @@ mergeLines (tests,fns,mods) =
         printTest t_id ((t_name, t_type), t_res, _) =
             do TIO.putStr $ T.pack $ show t_name ++ "," ++ show t_type ++ "," ++ show t_res ++ ","
                TIO.putStrLn $ T.intercalate (T.pack ",") $ map (T.pack . show) t_evals
-               
+
           where t_evals = map (IM.findWithDefault 0 t_id) test_r
 
-           
+
         test_r :: [IntMap Integer]
         test_r = map snd $ concatMap snd merged_lines
         merged_lines :: [(Int,[((Int,Int), IntMap Integer)])]
@@ -131,12 +131,12 @@ parseCSV :: FilePath -> IO ([((String,String), Bool, IntSet)], -- ^ A test and i
                             [[Label]] -- ^ The labels, grouped by module
                             )
 parseCSV target_file = do
-          (h:rs) <- T.lines <$> TIO.readFile target_file
+          (h:ts:rs) <- T.lines <$> TIO.readFile target_file
           let -- the labels are already in order per group
               grouped_locs = groupBy ((==) `on` fst) $ parseHeader h
 
               loc_groups = IM.fromAscList $
-                           zipWith (\i g -> (i, fst $ head g)) 
+                           zipWith (\i g -> (i, fst $ head g))
                              [0..] grouped_locs
 
               keepNonZero :: [Integer] -> IntMap Integer
@@ -149,11 +149,11 @@ parseCSV target_file = do
                                              else negate <$> knz))
                                   . parseEntry) rs
               test_results = map (\(n,r,es) -> (n,r, IM.keysSet es)) eval_results
-              
-              involved loc_i = mapMaybe (\(i,(_,r,im)) -> (i,)
-                                        <$> (IM.lookup loc_i im )) $ zip [0..] eval_results 
 
-          -- [2023-12-31] If we want to see it as it is parsed: 
+              involved loc_i = mapMaybe (\(i,(_,r,im)) -> (i,)
+                                        <$> (IM.lookup loc_i im )) $ zip [0..] eval_results
+
+          -- [2023-12-31] If we want to see it as it is parsed:
           -- mapM_ (print . (\((s,s2),r,im) -> ((s,s2), r,
           --                                   IM.size im,
           --                                   sum $ IM.elems im))) eval_results
@@ -172,7 +172,7 @@ parseCSV target_file = do
 
               labeled = map (\(group_i, locs) ->
                                    filter (\(Label _ _ _ v) -> not $ IM.null v) $
-                                    map (\(loc_i,(s,l)) -> 
+                                    map (\(loc_i,(s,l)) ->
                                         Label group_i l loc_i $
                                         IM.fromAscList $ involved loc_i) locs) $
                                     zip [0..] grouped_loc_index
