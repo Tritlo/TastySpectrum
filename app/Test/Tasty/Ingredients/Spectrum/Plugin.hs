@@ -4,6 +4,7 @@ module Test.Tasty.Ingredients.Spectrum.Plugin where
 
 import GHC
 import qualified Data.Map as Map
+import System.FilePath as FP
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins
 import GHC.Iface.Ext.Types
@@ -45,7 +46,7 @@ locationTyper args mod env = do
             where ssl = show $ srcSpanStartLine rsp
                   ssc = show $ srcSpanStartCol rsp
                   sel = show $ srcSpanEndLine rsp
-                  sec = show $ srcSpanEndCol rsp
+                  sec = show $ (srcSpanEndCol rsp -1) -- HpcPoses are weird.
                   f = unpackFS $ srcSpanFile rsp
         renderNode :: HieAST TypeIndex -> (String, [String])
 #if __GLASGOW_HASKELL__ > 810
@@ -60,5 +61,9 @@ locationTyper args mod env = do
 #endif
         renderInfo NodeInfo {nodeType = ty} = map render_ty ty
 
-    liftIO $ mapM_ (print .  renderNode ) hfs
+        rendered = map renderNode hfs
+
+    let mns = moduleNameString (ms_mod_name mod)
+        hdir = hpcDir dflags
+    liftIO $ writeFile (hdir FP.</> (mns ++ ".types")) $ show rendered
     return env

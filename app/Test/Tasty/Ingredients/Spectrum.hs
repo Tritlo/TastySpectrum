@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeApplications #-}
 module Test.Tasty.Ingredients.Spectrum
     (
         testSpectrum
@@ -42,6 +43,9 @@ import Data.IORef
 import Data.Semigroup((<>))
 
 import System.IO (hPutStrLn, stderr)
+
+import System.FilePath as FP
+import System.Directory as Dir
 
 newtype GetTestSpectrum = GetTestSpectrum Bool
   deriving (Eq, Ord, Typeable)
@@ -88,8 +92,8 @@ instance IsOption SparseSpectrum where
 
 -- | Primary function of the module - enables the import at `defaultMainWithIngredients` for other tasty test projects.
 -- See the [Tasty Repository](https://github.com/UnkindPartition/tasty) for more information on ingredients.
--- Important: running this spectrum will re-run all tests, which might take a time. Also, the resulting `.tix` file will not be representive of your whole test-suite. 
--- If you need coverage information, you need to retrieve it from a different run. 
+-- Important: running this spectrum will re-run all tests, which might take a time. Also, the resulting `.tix` file will not be representive of your whole test-suite.
+-- If you need coverage information, you need to retrieve it from a different run.
 testSpectrum :: Ingredient
 testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                             Option (Proxy :: Proxy Timeout),
@@ -108,7 +112,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                 SparseSpectrum s -> s
              hpc_dir = case lookupOption opts of
                             HpcDir str -> str
-        -- Step 1: Delete Tix, Run every test in isolation, Retrieve resulting Tix per Test 
+        -- Step 1: Delete Tix, Run every test in isolation, Retrieve resulting Tix per Test
          spectrums <- forM tests $ \(t_name,test) -> do
             clearTix
             t_res <- checkTastyTree timeout test
@@ -118,11 +122,11 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
             -- zeroes when we generate the output.
             let simpleRep :: TixModule -> (String, IntMap Integer)
                 simpleRep tm = (tixModuleName tm, im)
-                    where im = IM.fromAscList $ 
+                    where im = IM.fromAscList $
                                filter ((/= 0) . snd) $
                                zip [0.. ] $
                                tixModuleTixs tm
-                -- The bang here is very important, ensuring we evaluate the new_map here. 
+                -- The bang here is very important, ensuring we evaluate the new_map here.
                 -- Otherwise we quickly run out of memory on big projects & test-suites.
                 genNewMap = Map.fromList . filter (not . IM.null . snd) . map simpleRep
                 !new_map = genNewMap res
@@ -131,9 +135,9 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
             -- commands. For those cases, we need to make sure the process
             -- it spawns is compiled with -fhpc also, and emit a warning.
             if all IM.null (Map.elems new_map)
-            then let warn = hPutStrLn stderr 
+            then let warn = hPutStrLn stderr
                  in (warn $ "No expression touched in the test! Make sure spawned"
-                         ++ " commands are compiled with -fhpc.") 
+                         ++ " commands are compiled with -fhpc.")
             else return ()
             return (t_name, t_res, new_map)
         -- Step 1.1: Reduce the tix to only the touched ones.
@@ -153,17 +157,33 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                                     zip [0..] hpcs
                                 else hpcs))
                        <$> readMix [hpc_dir] (Left m)) $ Map.assocs touched
-         -- Step 2.1: Resolve the Mix indizes to "speaking names" of file+row+column 
+
+         let parseTypes :: String -> IO [(String, [String])]
+             parseTypes m = do
+               let path = hpc_dir FP.</> (m ++ ".types")
+               exists <- Dir.doesFileExist path
+               if not exists then
+                    error $ "Types file does not exist! Please re-run with "
+                         ++ "-fplugin Test.Tasty.Ingredients.Spectrum.Plugin "
+                         ++ "to generate type associations for locations."
+               else  read @[(String,[String])] <$> readFile path
+
+         loc_types <- Map.fromList . concat <$> (mapM parseTypes $ Map.keys mixes)
+         -- Step 2.1: Resolve the Mix indizes to "speaking names" of file+row+column
          let toCanonicalExpr file hpc_pos = file ++ ':' : show hpc_pos
          -- Step 3: Merge all results into a string in .csv style
              all_exprs = concatMap to_strings $ Map.elems mixes
                where to_strings (filename, hpcs) =
                         map (toCanonicalExpr filename) hpcs
+             -- quite slow I imagine, uff
+             all_types = map (\l -> case loc_types Map.!? l of
+                                      Just ts -> ts
+                                      Nothing -> []) all_exprs
 
-             toRes (t_name, t_res, tix_maps) = 
+             toRes (t_name, t_res, tix_maps) =
                 (t_name, t_res, concatMap eRes $ Map.assocs mixes)
               where -- eRes :: (String, (String, [HpcPos])) -> [Integer]
-                    eRes (mod, (_,hpcs)) = 
+                    eRes (mod, (_,hpcs)) =
                         case tix_maps Map.!? mod of
                             Just im ->
                                 map (flip (IM.findWithDefault 0) im) $
@@ -175,27 +195,31 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
 
              header = "test_name,test_type,test_result," ++
                        intercalate "," (map show all_exprs)
+             type_line = "loc_type,_,_," ++
+                       intercalate "," (map show all_types)
              printFunc ((s,tt),b,e) =
                 show s ++ "," ++
                 show tt ++ "," ++
                 show b ++ "," ++
                 intercalate "," (map show e)
              csv = map (printFunc . toRes) spectrums
-         -- Step 3.1: Print to Console or File, depending on args. 
+         -- Step 3.1: Print to Console or File, depending on args.
          case lookupOption opts of
             PrintSpectrum -> do
                 putStrLn header
+                putStrLn type_line
                 mapM_ putStrLn csv
             SaveSpectrum fp -> do
                 writeFile fp (header ++ "\n")
+                appendFile fp (type_line ++ "\n")
                 mapM_ (appendFile fp . (++ "\n")) csv
 
          return $ all (\(_,r,_) -> r) spectrums
 
--- | Unfolds a test-collection into single tests. 
--- The resulting tests are still TestTrees, due to tasty logic and keeping things runnable. 
+-- | Unfolds a test-collection into single tests.
+-- The resulting tests are still TestTrees, due to tasty logic and keeping things runnable.
 -- TODO: Keeps some more names around
-unfoldTastyTests :: 
+unfoldTastyTests ::
   TestTree                 -- ^ A collection of Tasty Tests
   -> [((String, String), TestTree)]  -- ^ A list of (TestName, TestType, Test
                                    -- ) with single tests without sub-elements.
@@ -207,10 +231,10 @@ unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs,
         fg gopts gname = map (\((n,tt),t) -> ((gname<>"/"<>n, tt), TR.PlusTestOptions (gopts <>) $ t))
 
 
--- | This function runs a single test - but a single test and a test-collection share the same type in tasty. 
+-- | This function runs a single test - but a single test and a test-collection share the same type in tasty.
 -- The result is the test-status. True on pass, false on fail or error.
--- The "tix" are retrieved separately after this function was executed.  
-checkTastyTree :: 
+-- The "tix" are retrieved separately after this function was executed.
+checkTastyTree ::
   Timeout       -- ^ Timeout how long the test will be run atmost - if timeout is reached the test is errore`d.
   -> TestTree   -- ^ Executable Tasty Test Tree - meant to be a single test!
   -> IO Bool    -- ^ Test Result. True on pass, False on fail,timeout or error
