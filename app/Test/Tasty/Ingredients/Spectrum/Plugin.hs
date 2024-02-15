@@ -27,7 +27,8 @@ import HieUtils
 plugin :: Plugin
 plugin = defaultPlugin {
     renamedResultAction = keepRenamedSource,
-    typeCheckResultAction = locationTyper
+    typeCheckResultAction = locationTyper,
+    pluginRecompile = purePlugin
 }
 
 
