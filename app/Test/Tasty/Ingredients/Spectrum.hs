@@ -89,6 +89,18 @@ instance IsOption SparseSpectrum where
                            "in any test."
     optionCLParser = flagCLParser Nothing (SparseSpectrum False)
 
+newtype TypedSpectrum = TypedSpectrum Bool
+  deriving (Eq, Ord, Typeable)
+
+instance IsOption TypedSpectrum where
+    defaultValue = TypedSpectrum True
+    parseValue = fmap (TypedSpectrum . not) . safeReadBool
+    optionName = return "no-typed-spectrum"
+    optionHelp = return $ "Create a *non-typed spectrum*, setting all types to []."
+                       ++ "use this if unable to build with the plugin"
+    optionCLParser = flagCLParser Nothing (TypedSpectrum False)
+
+
 
 -- | Primary function of the module - enables the import at `defaultMainWithIngredients` for other tasty test projects.
 -- See the [Tasty Repository](https://github.com/UnkindPartition/tasty) for more information on ingredients.
@@ -99,6 +111,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                             Option (Proxy :: Proxy Timeout),
                             Option (Proxy :: Proxy HpcDir),
                             Option (Proxy :: Proxy SpectrumOut),
+                            Option (Proxy :: Proxy TypedSpectrum),
                             Option (Proxy :: Proxy SparseSpectrum)] $
   \opts tree ->
     case lookupOption opts of
@@ -110,6 +123,8 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
              timeout = lookupOption opts
              sparseSpectrum = case lookupOption opts of
                                 SparseSpectrum s -> s
+             typedSpectrum = case lookupOption opts of
+                                TypedSpectrum s -> s
              hpc_dir = case lookupOption opts of
                             HpcDir str -> str
         -- Step 1: Delete Tix, Run every test in isolation, Retrieve resulting Tix per Test
@@ -165,10 +180,14 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                if not exists then
                     error $ "Types file does not exist! Please re-run with "
                          ++ "-fplugin Test.Tasty.Ingredients.Spectrum.Plugin "
-                         ++ "to generate type associations for locations."
+                         ++ " to generate type associations for locations, "
+                         ++ "or run again with --no-typed-spectrum."
                else  read @[(String,[String])] <$> readFile path
+         loc_types <- if typedSpectrum
+                      then Map.fromList . concat <$> (mapM parseTypes $ Map.keys mixes)
+                      else return Map.empty
 
-         loc_types <- Map.fromList . concat <$> (mapM parseTypes $ Map.keys mixes)
+
          -- Step 2.1: Resolve the Mix indizes to "speaking names" of file+row+column
          let toCanonicalExpr file hpc_pos = file ++ ':' : show hpc_pos
          -- Step 3: Merge all results into a string in .csv style
@@ -195,7 +214,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
 
              header = "test_name,test_type,test_result," ++
                        intercalate "," (map show all_exprs)
-             type_line = "loc_type,_,_," ++
+             type_line = "-,-,-," ++
                        intercalate "," (map show all_types)
              printFunc ((s,tt),b,e) =
                 show s ++ "," ++
