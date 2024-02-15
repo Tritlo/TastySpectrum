@@ -6,6 +6,7 @@ import GHC
 import qualified Data.Map as Map
 import System.FilePath as FP
 import System.Directory as Dir
+
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins
 import GHC.Iface.Ext.Types
@@ -16,8 +17,8 @@ import GHC.Tc.Utils.Monad
 #else
 import GhcPlugins
 import TcRnTypes
-import HieAst
 import TcRnMonad
+import HieAst
 import HieTypes
 import HieUtils
 #endif
@@ -52,14 +53,24 @@ locationTyper args mod env = do
                   sec = show $ (srcSpanEndCol rsp -1) -- HpcPoses are weird.
                   f = unpackFS $ srcSpanFile rsp
         renderNode :: HieAST TypeIndex -> (String, [String])
-#if __GLASGOW_HASKELL__ > 810
+#if __GLASGOW_HASKELL__ >= 902
         ufs (LexicalFastString fs) = unpackFS fs
+#else
+        ufs = unpackFS
+#endif
+
+#if __GLASGOW_HASKELL__ == 900 || __GLASGOW_HASKELL__ == 902
+        mid = toUnitId $ moduleUnit (ms_mod mod)
+#else
+        mid = moduleUnitId (ms_mod mod)
+#endif
+
+#if __GLASGOW_HASKELL__ >= 900
         renderNode (Node inf span _)  = (renderSpan span,  renderSourceInfo inf)
         renderSourceInfo (SourcedNodeInfo mp) = case mp Map.!? SourceInfo of
                                                  Just inf -> renderInfo inf
                                                  _ -> []
 #else
-        ufs = unpackFS
         renderNode (Node inf span _)  = (renderSpan span,  renderInfo inf)
 #endif
         renderInfo NodeInfo {nodeType = ty} = map render_ty ty
@@ -69,8 +80,8 @@ locationTyper args mod env = do
     let mns = moduleNameString (ms_mod_name mod)
         hpc_dir = hpcDir dflags
         -- same as for hpc
-        hpc_mod_dir | moduleUnitId (ms_mod mod) == mainUnitId = hpc_dir
-                    | otherwise = hpc_dir FP.</> (unitIdString (moduleUnitId $ ms_mod mod))
+        hpc_mod_dir | mid == mainUnitId = hpc_dir
+                    | otherwise = hpc_dir FP.</> (unitIdString mid)
     liftIO $ Dir.createDirectoryIfMissing True hpc_mod_dir
     liftIO $ writeFile (hpc_mod_dir FP.</> (mns ++ ".types")) $ show rendered
     return env
