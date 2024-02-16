@@ -46,6 +46,14 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
       rules =
         [ ("rTFail", rTFail),
           ("rTPass", rTPass),
+          ("rPropFail", rPropertiesFail),
+          ("rPropPass", rPropertiesPass),
+          ("rUnitFail", rUnitTestFail),
+          ("rUnitPass", rUnitTestPass),
+          ("rGoldenFail", rGoldenFail),
+          ("rGoldenPass", rGoldenPass),
+          ("rOtherTestFail", rOtherTestsFail),
+          ("rOtherTestPass", rOtherTestsPass),
           ("rTFailFreq", rTFailFreq),
           ("rTPassFreq", rTPassFreq),
           ("rTFailUniqueBranch", rTFailUniqueBranch),
@@ -133,6 +141,23 @@ relevantTests all_tests labels =
     -- checks for a given Test if a Label is in the executed list (done via Labels' unique loc_index)
     is_rel (_, _, is) = not (IS.disjoint lset is)
 
+-- | Filters an an IntMap of all Properties touched by a list of statements.
+filterForProperties::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
+filterForProperties = IM.filter (\((_,t), _, _) -> t == "QC") 
+
+-- | Filters an an IntMap of all UnitTests touched by a list of statements.
+filterForUnitTests::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
+filterForUnitTests = IM.filter (\((_,t), _, _) -> t == "TestCase") 
+
+-- | Filters an an IntMap of all Golden Tests touched by a list of statements.
+filterForGoldenTests::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
+filterForGoldenTests = IM.filter (\((_,t), _, _) -> t == "Golden") 
+
+-- | Filters an IntMap of all Other (not Unit,Property,Golden) Tests touched by a list of statements.
+filterForOtherTests::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
+filterForOtherTests = IM.filter (\((_,t), _, _) -> (t /= "Golden") && (t /= "TestCase") && (t /= "QC"))
+
+
 -- | An `Environment` holds a set of (global) values and can be pre-calculated.
 -- This eases computing some of the rules, mostly the traditional FL formulas (Ochiai, Tarantula, etc.)
 data Environment = Env
@@ -162,8 +187,58 @@ rTFail _ _ = map rTFail'
 -- Number of passing tests this label is involved in
 rTPass :: Rule
 rTPass _ _ = map rTPass'
-  where
+  where 
     rTPass' Label {..} = fromIntegral $ length (filter (> 0) $ IM.elems loc_evals)
+
+-- | Counts passing properties per label
+rPropertiesPass :: Rule 
+rPropertiesPass env rel_tests = countTestTypes filterForProperties True env rel_tests 
+
+-- | Counts failing properties per label
+rPropertiesFail :: Rule 
+rPropertiesFail env rel_tests = countTestTypes filterForProperties False env rel_tests 
+
+-- | Counts passing Unit Tests per label
+rUnitTestPass :: Rule 
+rUnitTestPass env rel_tests = countTestTypes filterForUnitTests True env rel_tests 
+
+-- | Counts failing Unit Tests per label
+rUnitTestFail :: Rule 
+rUnitTestFail env rel_tests = countTestTypes filterForUnitTests False env rel_tests 
+
+-- | Counts passing Golden Tests per label
+rGoldenPass :: Rule 
+rGoldenPass env rel_tests = countTestTypes filterForGoldenTests True env rel_tests 
+
+-- | Counts failing Golden Tests per label
+rGoldenFail :: Rule 
+rGoldenFail env rel_tests = countTestTypes filterForGoldenTests False env rel_tests 
+
+-- | Counts passing Other Tests per label
+rOtherTestsPass :: Rule 
+rOtherTestsPass env rel_tests = countTestTypes filterForOtherTests True env rel_tests 
+
+-- | Counts failing Other Tests per label
+rOtherTestsFail :: Rule 
+rOtherTestsFail env rel_tests = countTestTypes filterForOtherTests False env rel_tests 
+
+
+-- | Prototype-Function that looks over the labels and TestResults 
+-- to count how often the labels are in a Sub-Set of the original TestResults. 
+countTestTypes :: (IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)) -- ^ A filter for which tests to use, e.g. only properties 
+                -> Bool                                                                                -- ^ Whether or not we want to count failures or passes (TRUE = Pass)
+                -> Rule                                                                                -- ^ A finished Rule, ready to use.
+countTestTypes filterFunction testStatus _ rel_tests = map countOccurrences
+  where 
+    relevantTests :: IntMap ((String, String), Bool, IntSet)
+    relevantTests = IM.filter (\((_,_),b,_) -> b == testStatus) (filterFunction rel_tests)
+    touched_labels :: [IntSet]
+    touched_labels = [touched | ((_,_),_,touched) <- (IM.elems relevantTests)]
+    countOccurrences :: Label -> Double 
+    countOccurrences Label {..} =  fromIntegral $ countLocations loc_index touched_labels
+      where countLocations :: Int -> [IntSet] -> Int
+            countLocations index labels = length (filter (\s -> IS.member index s) labels)
+  
 
 -- Number of executions in failing tests
 rTFailFreq :: Rule
