@@ -34,6 +34,8 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
       total_failing_tests = total_tests - total_succesful_tests
       showPos :: (Int, Int, Int, Int) -> String
       showPos = show . toHpcPos
+      showInfo :: [String] -> String
+      showInfo = show
       env =
         Env
           { total_tests = total_tests,
@@ -75,7 +77,8 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
         pmap
           ( \ls_mod@(Label {loc_group = lc} : _) ->
               ( loc_groups IM.! lc,
-                zip (map (showPos . loc_pos) ls_mod) $
+                zip (map (\Label{..} -> (showPos loc_pos,
+                                         showInfo loc_info)) ls_mod) $
                   L.transpose $
                     map
                       ( \(_, rule) ->
@@ -89,6 +92,7 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
       pmap :: NFData b => (a -> b) -> [a] -> [b]
       pmap f = withStrategy (parList rdeepseq) . map f
 
+
       rule_names = Map.fromList $ zip (map fst rules ++ map fst meta_rules) [0 ..]
       meta_results =
         L.foldl'
@@ -97,6 +101,7 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
           )
           results
           meta_rules
+
   putStrLn "Rules:"
   mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
   mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
@@ -145,8 +150,8 @@ type Rule =
 type MetaRule =
   Map String Int ->
   Environment ->
-  [(FilePath, [(String, [Double])])] ->
-  [(FilePath, [(String, [Double])])]
+  [(FilePath, [((String,String), [Double])])] ->
+  [(FilePath, [((String,String), [Double])])]
 
 -- | Number of failing tests this label is involved in
 rTFail :: Rule
@@ -371,16 +376,16 @@ rQuantile rule_name r_inds _ r = annotate 0 r
         Just g_i = L.findIndex (w_i `IS.member`) ind_ws
     annotate ::
       Int ->
-      [(FilePath, [(String, [Double])])] ->
-      [(FilePath, [(String, [Double])])]
+      [(FilePath, [(a, [Double])])] ->
+      [(FilePath, [(a, [Double])])]
     annotate _ [] = []
     annotate !n ((fp, m) : ms) = (fp, m') : (annotate n' ms)
       where
         (!n', !m') = annotate' n m
         annotate' ::
           Int ->
-          [(String, [Double])] ->
-          (Int, [(String, [Double])])
+          [(a, [Double])] ->
+          (Int, [(a, [Double])])
         annotate' !n [] = (n, [])
         annotate' !n ((s, ds) : ls) =
           let (fn, ls') = annotate' (n + 1) ls
