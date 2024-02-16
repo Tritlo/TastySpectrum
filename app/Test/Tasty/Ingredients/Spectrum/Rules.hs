@@ -97,8 +97,6 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
           )
           results
           meta_rules
-  mapM_ (mapM_ print) (map (map (\l -> (pprLabelOnly loc_groups l)) . filter (\Label{loc_type=lt} -> null lt)) $ grouped_labels)
-  error ""
   putStrLn "Rules:"
   mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
   mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules

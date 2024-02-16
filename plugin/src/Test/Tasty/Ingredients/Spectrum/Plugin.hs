@@ -31,50 +31,71 @@ import TcHsSyn
 #if __GLASGOW_HASKELL__ >= 904
 import GHC.Hs.Syn.Type (lhsExprType,hsPatType)
 
-getTypeLHsExpr :: LHsExpr GhcTc -> TcM [(SrcSpan, Type)]
-getTypeLHsExpr l = return [(getLocA l, lhsExprType l)]
+getTypeLHsExpr :: LHsExpr GhcTc -> TcM [(Maybe Id, SrcSpan, Type)]
+getTypeLHsExpr e = return [(mid, getLocA e, lhsExprType e)]
+  where mid :: Maybe Id
+        mid | HsVar _ (L _ i) <- unwrapVar (unLoc e) = Just i
+            | otherwise                              = Nothing
+
+        unwrapVar (XExpr (WrapExpr (HsWrap _ var))) = var
+        unwrapVar e'                                = e'
 
 #else
 
 -- Taken from GHCi.UI.Info
-getTypeLHsExpr :: LHsExpr GhcTc -> TcM [(SrcSpan, Type)]
+getTypeLHsExpr :: LHsExpr GhcTc -> TcM [(Maybe Id, SrcSpan, Type)]
 getTypeLHsExpr e = do hsc_env <- getTopEnv
                       (_,mbe) <- liftIO $ deSugarExpr hsc_env e
                       return $ case mbe of 
 #if __GLASGOW_HASKELL__ == 902
-                                Just ce -> [(getLocA e, exprType ce)]
+                                Just ce -> [(mid, getLocA e, exprType ce)]
 #else
-                                Just ce -> [(getLoc e, exprType ce)]
+                                Just ce -> [(mid, getLoc e, exprType ce)]
 #endif
                                 _ -> []
+    where mid :: Maybe Id
+          mid | HsVar _ (L _ i) <- unwrapVar (unLoc e) = Just i
+              | otherwise                              = Nothing
+
+#if __GLASGOW_HASKELL__ >= 900
+          unwrapVar (XExpr (WrapExpr (HsWrap _ var))) = var
+#else
+          unwrapVar (HsWrap _ _ var) = var
+#endif
+          unwrapVar e'               = e'
+
 
 #endif 
 
 -- From GHCi.Info
-getTypeLPat :: LPat GhcTc -> TcM [(SrcSpan,Type)]
+getTypeLPat :: LPat GhcTc -> TcM [(Maybe Id, SrcSpan,Type)]
 #if __GLASGOW_HASKELL__ >= 902
-getTypeLPat l@(L _ pat) = return [(getLocA l, hsPatType pat)]
+getTypeLPat l@(L _ pat) = return [(mid, getLocA l, hsPatType pat)]
 #elif __GLASGOW_HASKELL__ >= 810
-getTypeLPat l@(L _ pat) = return [(getLoc l, hsPatType pat)]
+getTypeLPat l@(L _ pat) = return [(mid, getLoc l, hsPatType pat)]
 #elif __GLASGOW_HASKELL__ == 808
-getTypeLPat l@(dL ->L _ pat) = return [(getLoc l, hsPatType pat)]
+getTypeLPat l@(dL ->L _ pat) = return [(mid, getLoc l, hsPatType pat)]
 #else
-getTypeLPat l@(L _ pat) = return [(getLoc l, hsPatType pat)]
+getTypeLPat l@(L _ pat) = return [(mid, getLoc l, hsPatType pat)]
 #endif
+      where
+        mid | (VarPat _ (L _ vid)) <- pat = Just vid
+            | otherwise = Nothing
 
    
 -- | Extract 'Id', 'SrcSpan', and 'Type' for 'LHsBind's
-getTypeLHsBind :: LHsBind GhcTc -> TcM [(SrcSpan, Type)]
+getTypeLHsBind :: LHsBind GhcTc -> TcM [(Maybe Id, SrcSpan, Type)]
 #if __GLASGOW_HASKELL__ >= 906
 getTypeLHsBind (L _spn FunBind{fun_id = pid,fun_matches = MG _ _})
-    = return $ [(getLocA pid, varType (unLoc pid))]
+    = return $ [(mid, getLocA pid, varType (unLoc pid))]
 #elif __GLASGOW_HASKELL__ >= 902
 getTypeLHsBind (L _spn FunBind{fun_id = pid,fun_matches = MG _ _ _})
-    = return $ [(getLocA pid, varType (unLoc pid))]
+    = return $ [(mid, getLocA pid, varType (unLoc pid))]
 #else
 getTypeLHsBind (L _spn FunBind{fun_id = pid,fun_matches = MG _ _ _})
-    = return $ [(getLoc pid, varType (unLoc pid))]
+    = return $ [(mid, getLoc pid, varType (unLoc pid))]
 #endif
+    where mid = Just (unLoc pid)
 
 getTypeLHsBind _ = return []
 
@@ -156,9 +177,11 @@ locationTyper args mod env = do
         -- same as for hpc
         hpc_mod_dir | mid == mainUnitId = hpc_dir
                     | otherwise = hpc_dir FP.</> (unitIdString mid)
-        rendered = map (\(spn,t)
-                        -> (renderSpan spn, [showSDoc dflags $ ppr t]))
+        rendered = map (\(mid, spn,t)
+                        -> (renderSpan spn, map (showSDoc dflags) ([ppr t] ++ mbTLPpr mid)))
                             $ concatMap concat [bts,ets,pts]
+        mbTLPpr (Just x) = [ppr x]
+        mbTLPpr _ = []
     liftIO $ Dir.createDirectoryIfMissing True hpc_mod_dir
     liftIO $ writeFile (hpc_mod_dir FP.</> (mns ++ ".types")) $ show rendered
     return env

@@ -152,8 +152,8 @@ parseCSV target_file = do
           (h:ts:rs) <- T.lines <$> TIO.readFile target_file
           let -- the labels are already in order per group
               locs_no_types = parseHeader h
-              loc_types = parseTypes ts
-              parsed_locs = zipWith (\(m,l) !t -> (m,(l,t))) locs_no_types loc_types
+              loc_info = parseTypes ts
+              parsed_locs = zipWith (\(m,l) !t -> (m,(l,t))) locs_no_types loc_info
               grouped_locs = groupBy ((==) `on` fst) parsed_locs
 
               loc_groups = IM.fromAscList $

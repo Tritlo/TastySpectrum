@@ -183,7 +183,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                          ++ " to generate type associations for locations, "
                          ++ "or run again with --no-typed-spectrum."
                else  read @[(String,[String])] <$> readFile path
-         loc_types <- if typedSpectrum
+         loc_info <- if typedSpectrum
                       then Map.fromList . concat <$> (mapM parseTypes $ Map.keys mixes)
                       else return Map.empty
 
@@ -195,7 +195,7 @@ testSpectrum = TestManager [Option (Proxy :: Proxy GetTestSpectrum),
                where to_strings (filename, hpcs) =
                         map (toCanonicalExpr filename) hpcs
              -- quite slow I imagine, uff
-             all_types = map (\l -> case loc_types Map.!? l of
+             all_types = map (\l -> case loc_info Map.!? l of
                                       Just ts -> ts
                                       Nothing -> []) all_exprs
 
