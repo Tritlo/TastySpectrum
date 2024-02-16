@@ -1,33 +1,120 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ViewPatterns #-}
 module Test.Tasty.Ingredients.Spectrum.Plugin where
 
-import GHC
+import GHC hiding (exprType)
 import qualified Data.Map as Map
 import System.FilePath as FP
 import System.Directory as Dir
+import Data.Typeable
+import Data.Data
 
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins
-import GHC.Iface.Ext.Types
-import GHC.Iface.Ext.Utils
-import GHC.Iface.Ext.Ast
 import GHC.Tc.Types
 import GHC.Tc.Utils.Monad
+import GHC.HsToCore
+#if __GLASGOW_HASKELL__ == 902 || __GLASGOW_HASKELL__ == 900
+import GHC.Tc.Utils.Zonk (hsPatType)
+#endif
 #else
 import GhcPlugins
 import TcRnTypes
 import TcRnMonad
-import HieAst
-import HieTypes
-import HieUtils
+import Desugar
+import TcHsSyn
 #endif
+
+#if __GLASGOW_HASKELL__ >= 904
+import GHC.Hs.Syn.Type (lhsExprType,hsPatType)
+
+getTypeLHsExpr :: LHsExpr GhcTc -> TcM [(SrcSpan, Type)]
+getTypeLHsExpr l = return [(getLocA l, lhsExprType l)]
+
+#else
+
+-- Taken from GHCi.UI.Info
+getTypeLHsExpr :: LHsExpr GhcTc -> TcM [(SrcSpan, Type)]
+getTypeLHsExpr e = do hsc_env <- getTopEnv
+                      (_,mbe) <- liftIO $ deSugarExpr hsc_env e
+                      return $ case mbe of 
+#if __GLASGOW_HASKELL__ == 902
+                                Just ce -> [(getLocA e, exprType ce)]
+#else
+                                Just ce -> [(getLoc e, exprType ce)]
+#endif
+                                _ -> []
+
+#endif 
+
+-- From GHCi.Info
+getTypeLPat :: LPat GhcTc -> TcM [(SrcSpan,Type)]
+#if __GLASGOW_HASKELL__ >= 902
+getTypeLPat l@(L _ pat) = return [(getLocA l, hsPatType pat)]
+#elif __GLASGOW_HASKELL__ >= 810
+getTypeLPat l@(L _ pat) = return [(getLoc l, hsPatType pat)]
+#elif __GLASGOW_HASKELL__ == 808
+getTypeLPat l@(dL ->L _ pat) = return [(getLoc l, hsPatType pat)]
+#else
+getTypeLPat l@(L _ pat) = return [(getLoc l, hsPatType pat)]
+#endif
+
+   
+-- | Extract 'Id', 'SrcSpan', and 'Type' for 'LHsBind's
+getTypeLHsBind :: LHsBind GhcTc -> TcM [(SrcSpan, Type)]
+#if __GLASGOW_HASKELL__ >= 906
+getTypeLHsBind (L _spn FunBind{fun_id = pid,fun_matches = MG _ _})
+    = return $ [(getLocA pid, varType (unLoc pid))]
+#elif __GLASGOW_HASKELL__ >= 902
+getTypeLHsBind (L _spn FunBind{fun_id = pid,fun_matches = MG _ _ _})
+    = return $ [(getLocA pid, varType (unLoc pid))]
+#else
+getTypeLHsBind (L _spn FunBind{fun_id = pid,fun_matches = MG _ _ _})
+    = return $ [(getLoc pid, varType (unLoc pid))]
+#endif
+
+getTypeLHsBind _ = return []
+
+
+-- helper stolen from @syb@ package
+type GenericQ r = forall a. Data a => a -> r
+
+mkQ :: (Typeable a, Typeable b) => r -> (b -> r) -> a -> r
+(r `mkQ` br) a = maybe r br (cast a)
+
+-- | Get ALL source spans in the source.
+#if __GLASGOW_HASKELL__ >= 902
+listifyAllSpans :: Typeable a => LHsBinds GhcTc -> [LocatedA a]
+#elif __GLASGOW_HASKELL__ == 808
+listifyAllSpans :: (HasSrcSpan a, Typeable a) => LHsBinds GhcTc -> [a]
+#else
+listifyAllSpans :: Typeable a => LHsBinds GhcTc -> [Located a]
+#endif
+listifyAllSpans = everythingAllSpans (++) [] ([] `mkQ` (\x -> [x | p x]))
+    where
+#if __GLASGOW_HASKELL__ >= 902
+    p l@(L spn _) = isGoodSrcSpan $ getLocA l
+#elif __GLASGOW_HASKELL__ == 808
+    p l@(dL -> L spn _) = isGoodSrcSpan $ getLoc l
+#else
+    p l@(L spn _) = isGoodSrcSpan $ getLoc l
+#endif
+
+    -- | Variant of @syb@'s @everything@ (which summarises all nodes
+    -- in top-down, left-to-right order) with a stop-condition on 'NameSet's
+    everythingAllSpans :: (r -> r -> r) -> r -> GenericQ r -> GenericQ r
+    everythingAllSpans k z f x
+      | (False `mkQ` (const True :: NameSet -> Bool)) x = z
+      | otherwise = foldl k (f x) (gmapQ (everythingAllSpans k z f) x)
+
 
 
 
 plugin :: Plugin
 plugin = defaultPlugin {
-    renamedResultAction = keepRenamedSource,
     typeCheckResultAction = locationTyper,
     pluginRecompile = purePlugin
 }
@@ -36,52 +123,42 @@ plugin = defaultPlugin {
 
 locationTyper :: [CommandLineOption] -> ModSummary -> TcGblEnv -> TcM TcGblEnv
 locationTyper args mod env = do
-    let Just rnd = tcg_rn_decls env
-        renamed = (rnd , tcg_rn_imports env, tcg_rn_exports env, tcg_doc_hdr env)
 
     dflags <- getDynFlags
-    --TODO: if the hie_file already exists, we don't need to recreate it.
-    hsc <- getTopEnv
-    HieFile {hie_asts=HieASTs{getAsts = asts},
-             hie_types=tys} <- liftIO $ runHsc hsc $ mkHieFile mod env renamed
-    let render_ty ti = renderHieType dflags (recoverFullType ti tys)
-        hfs = concatMap flattenAst $ Map.elems asts
-        renderSpan rsp = concat [f, ":",ssl, ":", ssc, "-" , sel, ":", sec]
-            where ssl = show $ srcSpanStartLine rsp
-                  ssc = show $ srcSpanStartCol rsp
-                  sel = show $ srcSpanEndLine rsp
-                  sec = show $ (srcSpanEndCol rsp -1) -- HpcPoses are weird.
-                  f = unpackFS $ srcSpanFile rsp
-        renderNode :: HieAST TypeIndex -> (String, [String])
-#if __GLASGOW_HASKELL__ >= 902
-        ufs (LexicalFastString fs) = unpackFS fs
-#else
-        ufs = unpackFS
-#endif
 
+    let binds  = tcg_binds env
+
+    bts <- mapM getTypeLHsBind $ listifyAllSpans binds
+    ets <- mapM getTypeLHsExpr $ listifyAllSpans binds
+    pts <- mapM getTypeLPat    $ listifyAllSpans binds
+
+    
+
+    let mns = moduleNameString (ms_mod_name mod)
 #if __GLASGOW_HASKELL__ == 900 || __GLASGOW_HASKELL__ == 902
         mid = toUnitId $ moduleUnit (ms_mod mod)
 #else
         mid = moduleUnitId (ms_mod mod)
 #endif
-
+        renderSpan :: SrcSpan -> String
 #if __GLASGOW_HASKELL__ >= 900
-        renderNode (Node inf span _)  = (renderSpan span,  renderSourceInfo inf)
-        renderSourceInfo (SourcedNodeInfo mp) = case mp Map.!? SourceInfo of
-                                                 Just inf -> renderInfo inf
-                                                 _ -> []
+        renderSpan (RealSrcSpan rsp _) = 
 #else
-        renderNode (Node inf span _)  = (renderSpan span,  renderInfo inf)
+        renderSpan (RealSrcSpan rsp) = 
 #endif
-        renderInfo NodeInfo {nodeType = ty} = map render_ty ty
-
-        rendered = map renderNode hfs
-
-    let mns = moduleNameString (ms_mod_name mod)
+            concat [f, ":",ssl, ":", ssc, "-" , sel, ":", sec]
+            where ssl = show $ srcSpanStartLine rsp
+                  ssc = show $ srcSpanStartCol rsp
+                  sel = show $ srcSpanEndLine rsp
+                  sec = show $ (srcSpanEndCol rsp -1) -- HpcPoses are weird.
+                  f = unpackFS $ srcSpanFile rsp
         hpc_dir = hpcDir dflags
         -- same as for hpc
         hpc_mod_dir | mid == mainUnitId = hpc_dir
                     | otherwise = hpc_dir FP.</> (unitIdString mid)
+        rendered = map (\(spn,t)
+                        -> (renderSpan spn, [showSDoc dflags $ ppr t]))
+                            $ concatMap concat [bts,ets,pts]
     liftIO $ Dir.createDirectoryIfMissing True hpc_mod_dir
     liftIO $ writeFile (hpc_mod_dir FP.</> (mns ++ ".types")) $ show rendered
     return env

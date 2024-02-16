@@ -91,7 +91,7 @@ executable tasty-sbfl
   main-is: app/Main.hs
   ghc-options: -O2 -threaded -rtsopts
   build-depends: base >= 4 && < 5,
-                 hpc >= 0.6 && < 0.7,
+                 hpc >= 0.6 && < 0.8,
                  containers >= 0.6 && < 0.7,
                  optparse-applicative >= 0.18 && < 0.19,
                  tasty-spectrum

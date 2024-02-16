@@ -7,6 +7,7 @@ module Test.Tasty.Ingredients.Spectrum.Types (
         Label (..),
         TestResults,
         pprLabel,
+        pprLabelOnly,
         module Trace.Hpc.Util
             ) where
 
@@ -31,6 +32,7 @@ import Data.Semigroup((<>))
 data Label = Label { loc_group :: !Int,               -- ^ Index of the module this label belongs to.
                      loc_pos :: !(Int,Int,Int,Int),   -- ^ Source Code position of the given mix index, usually translates to something like 4:6-5:11 (from L4 Column 6 to L5 Column 11)
                      loc_index :: !Int,               -- ^ The index of the expression in our .csv-file. This is used as a unique identifier.
+                     loc_type :: ![String],           -- ^ A list of types associated with the loc from least to most general.
                      loc_evals :: !(IntMap Integer)   -- ^ A list of tests and how often this position has been evaluated
                                                       --   The first Int is the index of the tests, the second Integer is how often this loc_pos has been evaluated.
                                                       --   The second Integer will be positive for passing tests and negative for failing tests.
@@ -42,15 +44,26 @@ pprLabel ::
   IM.IntMap String -- ^ an IntMap of the Module ID's and their name
   -> Label         -- ^ the label to be pretty printed
   -> String        -- ^ Pretty printed, human readable output matching an HPC Position
-pprLabel loc_groups Label{..} =
-    fn <> ":" <> p <> " " <> show loc_evals
+pprLabel loc_groups l@Label{..} =
+    pprLabelOnly loc_groups l <> " " <> show loc_evals
+
+pprLabelOnly :: 
+  IM.IntMap String -- ^ an IntMap of the Module ID's and their name
+  -> Label         -- ^ the label to be pretty printed
+  -> String        -- ^ Pretty printed, human readable output matching an HPC Position
+pprLabelOnly loc_groups Label {..} = fn <> ":" <> p
    where fn = loc_groups IM.! loc_group
          p = show $ toHpcPos loc_pos
 
 
+
 instance Show Label where
     show (Label {..}) =
-        show loc_group ++ "-" ++ show loc_index ++ ":" ++ show loc_pos ++ " " ++ show (loc_evals)
+        show loc_group ++ "-" ++
+        show loc_index ++ ":" ++
+        show loc_pos   ++ " :: " ++
+        show loc_type  ++ " " ++
+        show (loc_evals)
 
 instance Eq Label where
   (==) = (==) `on` loc_index

@@ -23,10 +23,11 @@ import Data.IntSet (IntSet)
 import Data.Semigroup((<>))
 
 import Debug.Trace (traceShowId)
+import Control.DeepSeq (deepseq)
 
 
 parseHeader :: T.Text -> [(String, (Int,Int,Int,Int))]
-parseHeader !h = case T.stripPrefix ("test_name,test_type,test_result,") h of
+parseHeader !h = case T.stripPrefix "test_name,test_type,test_result," h of
                   Just r -> map parseLoc $ T.splitOn "," r
                   _ -> error "Invalid header"
   where parseLoc :: T.Text -> (String, (Int,Int,Int,Int))
@@ -126,6 +127,23 @@ mergeLines (tests,fns,mods) =
                      sortBy (compare `on` snd) $
                      map f lbls
 
+
+parseTypes :: T.Text -> [[String]]
+parseTypes !ts = case T.stripPrefix "-,-,-," ts of
+                    Just r | T.length r == 0 -> []
+                    Just r |  Just ('[', r) <- T.uncons r,
+                              Just (r, ']') <- T.unsnoc r,
+                              tys <- T.splitOn (T.pack "],[") r
+                              -> map parseType tys
+                    _ -> error "Invalid prefix for location types"
+    where parseType !t | T.length t == 0 = []
+          parseType !t | Just ('"', t) <- T.uncons t,
+                          Just (t, '"') <- T.unsnoc t,
+                          ts <- T.splitOn (T.pack "\",\"") t = map T.unpack ts
+          parseType !t = error ("Invalid type string: " ++ T.unpack t)
+
+
+
 parseCSV :: FilePath -> IO ([((String,String), Bool, IntSet)], -- ^ A test and its type, result, and the labels involved
                             IM.IntMap String, -- ^ The filename of each label
                             [[Label]] -- ^ The labels, grouped by module
@@ -133,7 +151,10 @@ parseCSV :: FilePath -> IO ([((String,String), Bool, IntSet)], -- ^ A test and i
 parseCSV target_file = do
           (h:ts:rs) <- T.lines <$> TIO.readFile target_file
           let -- the labels are already in order per group
-              grouped_locs = groupBy ((==) `on` fst) $ parseHeader h
+              locs_no_types = parseHeader h
+              loc_types = parseTypes ts
+              parsed_locs = zipWith (\(m,l) !t -> (m,(l,t))) locs_no_types loc_types
+              grouped_locs = groupBy ((==) `on` fst) parsed_locs
 
               loc_groups = IM.fromAscList $
                            zipWith (\i g -> (i, fst $ head g))
@@ -161,7 +182,7 @@ parseCSV target_file = do
           -- When there are multiple modules, we need to make sure that we
           -- assign a unique index *globally* and not just within the module.
           -- Otherwise the "involved" call will be wrong!
-          let grouped_loc_index :: [[(Int,(String, (Int, Int, Int, Int)))]]
+          let grouped_loc_index :: [[(Int,(String, ((Int, Int, Int, Int), [String])))]]
               grouped_loc_index = gli 0 grouped_locs
                 where gli !i [] = []
                       gli !i (xs:ys) = xs':(gli i' ys)
@@ -171,9 +192,9 @@ parseCSV target_file = do
                               gli_1 !i [] = []
 
               labeled = map (\(group_i, locs) ->
-                                   filter (\(Label _ _ _ v) -> not $ IM.null v) $
-                                    map (\(loc_i,(s,l)) ->
-                                        Label group_i l loc_i $
+                                   filter (\(Label _ _ _ _ v) -> not $ IM.null v) $
+                                    map (\(loc_i,(s,(l,t))) ->
+                                        Label group_i l loc_i t $
                                         IM.fromAscList $ involved loc_i) locs) $
                                     zip [0..] grouped_loc_index
           return (test_results, loc_groups, labeled)
