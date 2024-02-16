@@ -178,10 +178,11 @@ locationTyper args mod env = do
         hpc_mod_dir | mid == mainUnitId = hpc_dir
                     | otherwise = hpc_dir FP.</> (unitIdString mid)
         rendered = map (\(mid, spn,t)
-                        -> (renderSpan spn, map (showSDoc dflags) ([ppr t] ++ mbTLPpr mid)))
+                        -> (renderSpan spn,  ([pr t mid]) ))
                             $ concatMap concat [bts,ets,pts]
-        mbTLPpr (Just x) = [ppr x]
-        mbTLPpr _ = []
+
+        pr t (Just x) = (showSDoc dflags $ ppr x) ++ " :: " ++ (showSDoc dflags $ ppr t)
+        pr t _ = " :: " ++ (showSDoc dflags $ ppr t)
     liftIO $ Dir.createDirectoryIfMissing True hpc_mod_dir
     liftIO $ writeFile (hpc_mod_dir FP.</> (mns ++ ".types")) $ show rendered
     return env
