@@ -85,14 +85,18 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
           ("rTFailFreqDiffParent", rTFailFreqDiffParent),
           ("rIsIdentifier",rIsIdentifier),
           ("rNoInfo",rNoInfo),
-          ("rNumArrows",rNumArrows)
+          ("rNumTypesInType",rNumTypesInType),
+          ("rNumArrows",rNumArrows),
+          ("rNumConcreteTypesInType",rNumConcreteTypesInType)
         ]
 
       meta_rules =
         [ ("rTarantulaQuantile", rQuantile "rTarantula"),
           ("rOchiaiQuantile", rQuantile "rOchiai"),
           ("rDStar2Quantile", rQuantile "rDStar 2"),
-          ("rDStar3Quantile", rQuantile "rDStar 3")
+          ("rDStar3Quantile", rQuantile "rDStar 3"),
+          ("rNumIdFails", rNumIdFails),
+          ("rNumTypeFails", rNumTypeFails)
         ]
       -- [2023-12-31]
       -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
@@ -104,7 +108,7 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
           ( \ls_mod@(Label {loc_group = lc} : _) ->
               ( loc_groups IM.! lc,
                 zip (map (\Label{..} -> (showPos loc_pos,
-                                         showInfo loc_info)) ls_mod) $
+                                         loc_info)) ls_mod) $
                   L.transpose $
                     map
                       ( \(_, rule) ->
@@ -193,8 +197,8 @@ type Rule =
 type MetaRule =
   Map String Int ->
   Environment ->
-  [(FilePath, [((String,String), [Double])])] ->
-  [(FilePath, [((String,String), [Double])])]
+  [(FilePath, [((String,[String]), [Double])])] ->
+  [(FilePath, [((String,[String]), [Double])])]
 
 -- | Number of failing tests this label is involved in
 rTFail :: Rule
@@ -311,22 +315,48 @@ rTFailUniqueBranch _ rel_tests mod_labels = map score mod_labels
 rASTLeaf :: Rule
 rASTLeaf _ _ = map fromIntegral . leafDistanceList
 
--- [2024-02-17] type-based rules
+-- [2024-02-17] Type-based rules
+--
+-- Do we have an identifier?
 rIsIdentifier :: Rule
 rIsIdentifier _ _ = map (fromIntegral . (\Label{..} -> if length loc_info == 2
                                                       then 1 else 0))
+
+-- We don't have any info
 rNoInfo :: Rule
 rNoInfo _ _ = map (fromIntegral . (\Label{..} -> if length loc_info == 0
                                                       then 1 else 0))
 
--- TODO: do deeper analysis of the types
-rNumArrows :: Rule
-rNumArrows _ _ = map (fromIntegral . (\Label{..} ->
+
+-- Type analysis
+analyzeType :: (HsType GhcPs -> Double) -> Rule
+analyzeType analysis _ _ = map ((\Label{..} ->
     case loc_info of
-        (x:_) | Just t <- parseInfoType x -> length $ filter isHFunTy $ flatTy t
+        (x:_) | Just t <- parseInfoType x -> analysis t
         _ -> 0))
-  where flatTy = universeOf uniplate
-        isHFunTy d = toConstr d == (toConstr (HsFunTy{} :: HsType GhcPs))
+
+
+-- How many types are there in the type Int is one, Int -> Int is 3
+-- (Int, (-> Int)).
+rNumTypesInType :: Rule
+rNumTypesInType = analyzeType (fromIntegral . length . flatTy)
+ where isHsTyVar d = toConstr d == (toConstr (HsTyVar{} :: HsType GhcPs))
+       flatTy = universeOf uniplate
+
+-- How many arrows are there? Note this is not exactly the arity, but 
+-- close.
+rNumArrows :: Rule
+rNumArrows = analyzeType (fromIntegral . length . filter isHsFunTy . flatTy)
+ where isHsFunTy d = toConstr d == (toConstr (HsFunTy{} :: HsType GhcPs))
+       flatTy = universeOf uniplate
+
+
+-- How many concrete types are there? E.g. Int, String, etc.
+rNumConcreteTypesInType :: Rule
+rNumConcreteTypesInType = analyzeType (fromIntegral . length . filter isHsTyVar . flatTy)
+ where isHsTyVar d = toConstr d == (toConstr (HsTyVar{} :: HsType GhcPs))
+       flatTy = universeOf uniplate
+
 
 -- | The (global) tarantula score of this expression
 -- Global refers to "per-spectrum" instead of the "per-module" values of other rules.
@@ -462,6 +492,42 @@ rTFailFreqDiffParent _ rel_tests labels = map (sum . res) labels
             e <- fromIntegral <$> evs IM.!? test_index
             pe <- fromIntegral <$> p_evs IM.!? test_index
             return (e / pe)
+
+-- How many times is the identifier, if present, involved in a fault?
+rNumIdFails :: MetaRule
+rNumIdFails = rNumInfoRule "rTFail" selId (-1) (+)
+  where selId [_,x] = Just x
+        selId _ = Nothing
+
+rNumTypeFails :: MetaRule
+rNumTypeFails = rNumInfoRule "rTFail" selTy (-1) (+)
+  where selTy (x:_) = Just x
+        selTy _ = Nothing
+
+rNumInfoRule :: String
+             -> ([String] -> Maybe String)
+             -> Double
+             -> (Double -> Double -> Double)
+             -> MetaRule
+rNumInfoRule key sel no_val merge rule_locs _ results = 
+        map (\(fn,res) -> (fn, map upd res)) results
+  where key_loc = rule_locs Map.! key
+        all_res = Map.unionsWith merge $ map (Map.fromListWith merge
+                                             . mapMaybe f . snd) results
+        f :: ((String,[String]), [Double]) -> Maybe (String, Double)
+        f ((_,info),vals) = case sel info of
+                            Just s -> Just (s, vals L.!! key_loc)
+                            _ -> Nothing
+        upd :: ((String,[String]), [Double])
+            -> ((String,[String]), [Double])
+        upd ((l,inf), vals) =  ((l,inf), vals ++ [nv])
+          where nv | Just x <- sel inf,
+                     Just v <- all_res Map.!? x = v
+                   | otherwise = no_val
+
+
+
+    
 
 -- A meta rule. Computes in what quantile a given score for a given rule is.
 -- Note that the referenced rule must already exist.
