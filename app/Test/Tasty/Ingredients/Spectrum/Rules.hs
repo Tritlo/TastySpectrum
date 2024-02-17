@@ -336,15 +336,15 @@ analyzeType analysis _ _ = map ((\Label{..} ->
         _ -> 0))
 
 
--- How many types are there in the type Int is one, Int -> Int is 3
--- (Int, (-> Int)).
+-- How many types are there in the type? Int is one, Int -> Int is 3:
+-- Int, (->), and Int
 rNumTypesInType :: Rule
 rNumTypesInType = analyzeType (fromIntegral . length . flatTy)
  where isHsTyVar d = toConstr d == (toConstr (HsTyVar{} :: HsType GhcPs))
        flatTy = universeOf uniplate
 
--- How many arrows are there? Note this is not exactly the arity, but 
--- close.
+-- How many arrows are there? Note this is not exactly the arity,
+-- since we might have a -> (a -> b) -> c, which has arity 2 but 3 arrows.
 rNumArrows :: Rule
 rNumArrows = analyzeType (fromIntegral . length . filter isHsFunTy . flatTy)
  where isHsFunTy d = toConstr d == (toConstr (HsFunTy{} :: HsType GhcPs))
@@ -352,6 +352,8 @@ rNumArrows = analyzeType (fromIntegral . length . filter isHsFunTy . flatTy)
 
 
 -- How many concrete types are there? E.g. Int, String, etc.
+-- So NumTypesInType [Int] will be 2, the [] and the Int,
+-- NumArrows will be 0 and NumConcreteTypesInType will be 1.
 rNumConcreteTypesInType :: Rule
 rNumConcreteTypesInType = analyzeType (fromIntegral . length . filter isHsTyVar . flatTy)
  where isHsTyVar d = toConstr d == (toConstr (HsTyVar{} :: HsType GhcPs))
@@ -499,15 +501,14 @@ rNumIdFails = rNumInfoRule "rTFail" selId (-1) (+)
   where selId [_,x] = Just x
         selId _ = Nothing
 
+-- | How many times is the type, if present, involved in a fault?
 rNumTypeFails :: MetaRule
 rNumTypeFails = rNumInfoRule "rTFail" selTy (-1) (+)
   where selTy (x:_) = Just x
         selTy _ = Nothing
 
-rNumInfoRule :: String
-             -> ([String] -> Maybe String)
-             -> Double
-             -> (Double -> Double -> Double)
+rNumInfoRule :: String -> ([String] -> Maybe String)
+             -> Double -> (Double -> Double -> Double)
              -> MetaRule
 rNumInfoRule key sel no_val merge rule_locs _ results = 
         map (\(fn,res) -> (fn, map upd res)) results
