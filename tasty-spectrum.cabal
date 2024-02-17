@@ -60,9 +60,11 @@ library
                      Test.Tasty.Ingredients.Spectrum.GenForest,
                      Test.Tasty.Ingredients.Spectrum.Types,
                      Test.Tasty.Ingredients.Spectrum.ParseCSV,
+                     Test.Tasty.Ingredients.Spectrum.Parse,
                      Test.Tasty.Ingredients.Spectrum.SBFL,
                      Test.Tasty.Ingredients.Spectrum.Rules,
                      Test.Tasty.Ingredients.Spectrum.Weights
+
     reexported-modules: Test.Tasty.Ingredients.Spectrum.Plugin
     ghc-options: -O2
     hs-source-dirs: app/
@@ -84,6 +86,7 @@ library
                       deepseq,
                       filepath,
                       directory,
+                      lens,
                       tasty-spectrum-plugin
 
 executable tasty-sbfl

@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE CPP #-}
 
 module Test.Tasty.Ingredients.Spectrum.Rules where
 
@@ -21,6 +22,20 @@ import Data.Tree
 import Data.Tree (drawForest)
 import Test.Tasty.Ingredients.Spectrum.GenForest
 import Test.Tasty.Ingredients.Spectrum.Types
+import Test.Tasty.Ingredients.Spectrum.Parse
+import Data.Data
+import Control.Lens (universeOf)
+import Data.Data.Lens (uniplate)
+
+import GHC
+#if __GLASGOW_HASKELL__ >= 900
+import GHC.Hs.Type
+#elif __GLASGOW_HASKELL__ >= 810
+import GHC.Hs.Types
+#else
+import HsTypes
+#endif
+
 
 -- | runRules executes all rules and outputs their results to the console.
 -- After applying all rules, it terminates the program.
@@ -67,7 +82,10 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
           ("rDStar 3", rDStar 3),
           ("rRogot1", rRogot1),
           ("rASTLeaf", rASTLeaf),
-          ("rTFailFreqDiffParent", rTFailFreqDiffParent)
+          ("rTFailFreqDiffParent", rTFailFreqDiffParent),
+          ("rIsIdentifier",rIsIdentifier),
+          ("rNoInfo",rNoInfo),
+          ("rNumArrows",rNumArrows)
         ]
 
       meta_rules =
@@ -292,6 +310,23 @@ rTFailUniqueBranch _ rel_tests mod_labels = map score mod_labels
 -- [2024-01-01] Gives the distance of the label from a leaf
 rASTLeaf :: Rule
 rASTLeaf _ _ = map fromIntegral . leafDistanceList
+
+-- [2024-02-17] type-based rules
+rIsIdentifier :: Rule
+rIsIdentifier _ _ = map (fromIntegral . (\Label{..} -> if length loc_info == 2
+                                                      then 1 else 0))
+rNoInfo :: Rule
+rNoInfo _ _ = map (fromIntegral . (\Label{..} -> if length loc_info == 0
+                                                      then 1 else 0))
+
+-- TODO: do deeper analysis of the types
+rNumArrows :: Rule
+rNumArrows _ _ = map (fromIntegral . (\Label{..} ->
+    case loc_info of
+        (x:_) | Just t <- parseInfoType x -> length $ filter isHFunTy $ flatTy t
+        _ -> 0))
+  where flatTy = universeOf uniplate
+        isHFunTy d = toConstr d == (toConstr (HsFunTy{} :: HsType GhcPs))
 
 -- | The (global) tarantula score of this expression
 -- Global refers to "per-spectrum" instead of the "per-module" values of other rules.
