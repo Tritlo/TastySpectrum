@@ -84,11 +84,13 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
           ("rASTLeaf", rASTLeaf),
           ("rTFailFreqDiffParent", rTFailFreqDiffParent),
           ("rIsIdentifier",rIsIdentifier),
-          ("rNoInfo",rNoInfo),
-          ("rNumTypesInType",rNumTypesInType),
-          ("rNumArrows",rNumArrows),
-          ("rTypeArity",rTypeArity),
-          ("rNumConcreteTypesInType",rNumConcreteTypesInType)
+          ("rTypeLength", rTypeLength),
+          ("rArity",rArity),
+          ("rOrder",rOrder),
+          ("rConstraints",rConstraints),
+          ("rPrimitiveTypes",rPrimitiveTypes),
+          ("rNumTypesInType", rNumTypesInType),
+          ("rNumArrows",rNumArrows)
         ]
 
       meta_rules =
@@ -323,10 +325,14 @@ rIsIdentifier :: Rule
 rIsIdentifier _ _ = map (fromIntegral . (\Label{..} -> if length loc_info == 2
                                                       then 1 else 0))
 
--- We don't have any info
-rNoInfo :: Rule
-rNoInfo _ _ = map (fromIntegral . (\Label{..} -> if length loc_info == 0
-                                                      then 1 else 0))
+-- How long is the type, character-wise?
+rTypeLength :: Rule
+rTypeLength _ _ =
+    map (fromIntegral . (\Label{..} ->
+        case loc_info of
+            (x:_) -> length x
+            _ -> 0))
+
 
 
 -- Type analysis
@@ -341,8 +347,25 @@ analyzeType analysis _ _ = map ((\Label{..} ->
 -- Int, (->), and Int
 rNumTypesInType :: Rule
 rNumTypesInType = analyzeType (fromIntegral . length . flatTy)
- where isHsTyVar d = toConstr d == (toConstr (HsTyVar{} :: HsType GhcPs))
+ where flatTy = universeOf uniplate
+
+rOrder :: Rule
+rOrder = analyzeType (fromIntegral . length . filter isHsAppTy . flatTy)
+ where isHsAppTy d = toConstr d == (toConstr (HsAppTy{} :: HsType GhcPs))
        flatTy = universeOf uniplate
+
+-- | Gets the number of constraints a type has.
+rConstraints :: Rule
+rConstraints = analyzeType (fromIntegral . sum . map ctxtLength . flatTy)
+ where isHsAppTy d = toConstr d == (toConstr (HsAppTy{} :: HsType GhcPs))
+       flatTy = universeOf uniplate
+       ctxtLength :: HsType GhcPs -> Int
+#if __GLASGOW_HASKELL__ == 902
+       ctxtLength (HsQualTy {hst_ctxt= Just ctxt}) = length (unLoc ctxt)
+#else
+       ctxtLength (HsQualTy {hst_ctxt=ctxt}) = length (unLoc ctxt)
+#endif
+       ctxtLength _ = 0
 
 -- How many arrows are there? Note this is not exactly the arity,
 -- since we might have a -> (a -> b) -> c, which has arity 2 but 3 arrows.
@@ -352,11 +375,13 @@ rNumArrows = analyzeType (fromIntegral . length . filter isHsFunTy . flatTy)
        flatTy = universeOf uniplate
 
 -- | Gives the function arity for simple types
-rTypeArity :: Rule
-rTypeArity = analyzeType (fromIntegral .  countArgs)
-  where
+rArity :: Rule
+rArity = analyzeType (fromIntegral .  countArgs)
+  where countArgs :: HsType GhcPs -> Int
 #if __GLASGOW_HASKELL__ >= 900
         countArgs (HsFunTy _ _ _ y)
+#elif __GLASGOW_HASKELL__ == 902
+        countArgs (HsFunTy _ _ y)
 #else
         countArgs (HsFunTy _ _ y)
 #endif
@@ -367,9 +392,9 @@ rTypeArity = analyzeType (fromIntegral .  countArgs)
 
 -- How many concrete types are there? E.g. Int, String, etc.
 -- So NumTypesInType [Int] will be 2, the [] and the Int,
--- NumArrows will be 0 and NumConcreteTypesInType will be 1.
-rNumConcreteTypesInType :: Rule
-rNumConcreteTypesInType = analyzeType (fromIntegral . length . filter isHsTyVar . flatTy)
+-- rArity will be 0 and NumConcreteTypesInType will be 1.
+rPrimitiveTypes :: Rule
+rPrimitiveTypes = analyzeType (fromIntegral . length . filter isHsTyVar . flatTy)
  where isHsTyVar d = toConstr d == (toConstr (HsTyVar{} :: HsType GhcPs))
        flatTy = universeOf uniplate
 
