@@ -87,6 +87,7 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
           ("rNoInfo",rNoInfo),
           ("rNumTypesInType",rNumTypesInType),
           ("rNumArrows",rNumArrows),
+          ("rTypeArity",rTypeArity),
           ("rNumConcreteTypesInType",rNumConcreteTypesInType)
         ]
 
@@ -350,6 +351,19 @@ rNumArrows = analyzeType (fromIntegral . length . filter isHsFunTy . flatTy)
  where isHsFunTy d = toConstr d == (toConstr (HsFunTy{} :: HsType GhcPs))
        flatTy = universeOf uniplate
 
+-- | Gives the function arity for simple types
+rTypeArity :: Rule
+rTypeArity = analyzeType (fromIntegral .  countArgs)
+  where
+#if __GLASGOW_HASKELL__ >= 900
+        countArgs (HsFunTy _ _ _ y)
+#else
+        countArgs (HsFunTy _ _ y)
+#endif
+           = 1 + (countArgs $ unLoc y)
+        countArgs (HsParTy _ ty) = 1 + (countArgs $ unLoc ty)
+        countArgs _ = 0
+        -- We don't do more complex than that.
 
 -- How many concrete types are there? E.g. Int, String, etc.
 -- So NumTypesInType [Int] will be 2, the [] and the Int,
