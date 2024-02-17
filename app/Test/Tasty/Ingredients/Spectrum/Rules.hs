@@ -376,7 +376,7 @@ rNumArrows = analyzeType (fromIntegral . length . filter isHsFunTy . flatTy)
 
 -- | Gives the function arity for simple types
 rArity :: Rule
-rArity = analyzeType (fromIntegral .  countArgs)
+rArity = analyzeType (fromIntegral . firstNonZero . map countArgs . flatTy)
   where countArgs :: HsType GhcPs -> Int
 #if __GLASGOW_HASKELL__ >= 900
         countArgs (HsFunTy _ _ _ y)
@@ -389,6 +389,10 @@ rArity = analyzeType (fromIntegral .  countArgs)
         countArgs (HsParTy _ ty) = 1 + (countArgs $ unLoc ty)
         countArgs _ = 0
         -- We don't do more complex than that.
+        flatTy = universeOf uniplate
+        firstNonZero [] = 0
+        firstNonZero (x:xs) | x == 0 = firstNonZero xs
+        firstNonZero (x:_) = x
 
 -- How many concrete types are there? E.g. Int, String, etc.
 -- So NumTypesInType [Int] will be 2, the [] and the Int,
