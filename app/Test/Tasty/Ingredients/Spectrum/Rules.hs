@@ -87,6 +87,7 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
           ("rTypeLength", rTypeLength),
           ("rArity",rArity),
           ("rOrder",rOrder),
+          ("rFunArgs",rFunArgs),
           ("rConstraints",rConstraints),
           ("rPrimitiveTypes",rPrimitiveTypes),
           ("rNumTypesInType", rNumTypesInType),
@@ -352,6 +353,12 @@ rNumTypesInType = analyzeType (fromIntegral . length . flatTy)
 rOrder :: Rule
 rOrder = analyzeType (fromIntegral . length . filter isHsAppTy . flatTy)
  where isHsAppTy d = toConstr d == (toConstr (HsAppTy{} :: HsType GhcPs))
+       flatTy = universeOf uniplate
+
+-- | Number of arguments that are parenthesizedx
+rFunArgs :: Rule
+rFunArgs = analyzeType (fromIntegral . length . filter isHsParTy . flatTy)
+ where isHsParTy d = toConstr d == (toConstr (HsParTy{} :: HsType GhcPs))
        flatTy = universeOf uniplate
 
 -- | Gets the number of constraints a type has.
