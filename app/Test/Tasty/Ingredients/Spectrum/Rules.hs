@@ -27,6 +27,9 @@ import Data.Data
 import Control.Lens (universeOf)
 import Data.Data.Lens (uniplate)
 
+import qualified Data.Aeson as Aeson
+import qualified Data.ByteString.Lazy as BSL
+
 import GHC
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Hs.Type
@@ -42,8 +45,8 @@ import HsTypes
 --
 -- DevNote: Some of the rules are "computation heavy", so in order to make things work performant
 -- the rules are scoped per module (when applicable) to have less memory need and less checks to do.
-runRules :: TestResults -> IO ()
-runRules tr@(test_results, loc_groups, grouped_labels) = do
+runRules :: Bool -> TestResults -> IO ()
+runRules use_json tr@(test_results, loc_groups, grouped_labels) = do
   let total_tests = length test_results
       total_succesful_tests = length $ filter (\(_, b, _) -> b) test_results
       total_failing_tests = total_tests - total_succesful_tests
@@ -136,19 +139,43 @@ runRules tr@(test_results, loc_groups, grouped_labels) = do
           results
           meta_rules
 
-  putStrLn "Rules:"
-  mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
-  mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
-  putStrLn ""
-  putStrLn "Results:"
-  mapM_
-    ( putStrLn . \(fn, rule_results) ->
-        ( "  " ++ fn ++ ":\n    "
-            ++ show rule_results
-        )
-    )
-    meta_results
+  if use_json then
+    let rks = map fst rules ++ map fst meta_rules
+        json_res = Aeson.toJSON $ map (uncurry construct_kv) meta_results
+        construct_kv :: FilePath -> [((String,[String]), [Double])] -> Aeson.Value
+        construct_kv fn res =
+            Aeson.toJSON $ Map.fromList [("filename", Aeson.toJSON fn),
+                                         ("locations", Aeson.toJSON $ map c res)]
+          where c ((loc,info),vals) = Aeson.toJSON $
+                    Map.fromList  [("location", Aeson.toJSON loc),
+                                   ("info", Aeson.toJSON $
+                                              Map.fromList [("type",ty),
+                                                            ("identifier",ident)]),
+                                   ("results", Aeson.toJSON $
+                                                Map.fromList $ zip rks vals)]
+                    where ty | (x:_) <- info = Just x
+                             | otherwise = Nothing
+                          ident | [_,i] <- info = Just i
+                                | otherwise = Nothing
+    in BSL.putStr $ Aeson.encode $ json_res
 
+  else do
+    putStrLn "Rules:"
+    mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
+    mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
+    putStrLn ""
+    putStrLn "Results:"
+    mapM_
+        ( putStrLn . \(fn, rule_results) ->
+            ( "  " ++ fn ++ ":\n    "
+                ++ show rule_results
+            )
+        )
+        meta_results
+
+data JsonResult = JR {jr_location :: String,
+                      jr_lnfo :: Map String (Maybe String),
+                      jr_lesults :: Map String Double}
 -- | Returns an IntMap of all tests touched by a list of statements.
 -- "Touched" means executed in a failing *or* passing test.
 relevantTests ::
@@ -169,15 +196,15 @@ relevantTests all_tests labels =
 
 -- | Filters an an IntMap of all Properties touched by a list of statements.
 filterForProperties::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
-filterForProperties = IM.filter (\((_,t), _, _) -> t == "QC") 
+filterForProperties = IM.filter (\((_,t), _, _) -> t == "QC")
 
 -- | Filters an an IntMap of all UnitTests touched by a list of statements.
 filterForUnitTests::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
-filterForUnitTests = IM.filter (\((_,t), _, _) -> t == "TestCase") 
+filterForUnitTests = IM.filter (\((_,t), _, _) -> t == "TestCase")
 
 -- | Filters an an IntMap of all Golden Tests touched by a list of statements.
 filterForGoldenTests::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
-filterForGoldenTests = IM.filter (\((_,t), _, _) -> t == "Golden") 
+filterForGoldenTests = IM.filter (\((_,t), _, _) -> t == "Golden")
 
 -- | Filters an IntMap of all Other (not Unit,Property,Golden) Tests touched by a list of statements.
 filterForOtherTests::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
@@ -213,58 +240,58 @@ rTFail _ _ = map rTFail'
 -- Number of passing tests this label is involved in
 rTPass :: Rule
 rTPass _ _ = map rTPass'
-  where 
+  where
     rTPass' Label {..} = fromIntegral $ length (filter (> 0) $ IM.elems loc_evals)
 
 -- | Counts passing properties per label
-rPropertiesPass :: Rule 
-rPropertiesPass env rel_tests = countTestTypes filterForProperties True env rel_tests 
+rPropertiesPass :: Rule
+rPropertiesPass env rel_tests = countTestTypes filterForProperties True env rel_tests
 
 -- | Counts failing properties per label
-rPropertiesFail :: Rule 
-rPropertiesFail env rel_tests = countTestTypes filterForProperties False env rel_tests 
+rPropertiesFail :: Rule
+rPropertiesFail env rel_tests = countTestTypes filterForProperties False env rel_tests
 
 -- | Counts passing Unit Tests per label
-rUnitTestPass :: Rule 
-rUnitTestPass env rel_tests = countTestTypes filterForUnitTests True env rel_tests 
+rUnitTestPass :: Rule
+rUnitTestPass env rel_tests = countTestTypes filterForUnitTests True env rel_tests
 
 -- | Counts failing Unit Tests per label
-rUnitTestFail :: Rule 
-rUnitTestFail env rel_tests = countTestTypes filterForUnitTests False env rel_tests 
+rUnitTestFail :: Rule
+rUnitTestFail env rel_tests = countTestTypes filterForUnitTests False env rel_tests
 
 -- | Counts passing Golden Tests per label
-rGoldenPass :: Rule 
-rGoldenPass env rel_tests = countTestTypes filterForGoldenTests True env rel_tests 
+rGoldenPass :: Rule
+rGoldenPass env rel_tests = countTestTypes filterForGoldenTests True env rel_tests
 
 -- | Counts failing Golden Tests per label
-rGoldenFail :: Rule 
-rGoldenFail env rel_tests = countTestTypes filterForGoldenTests False env rel_tests 
+rGoldenFail :: Rule
+rGoldenFail env rel_tests = countTestTypes filterForGoldenTests False env rel_tests
 
 -- | Counts passing Other Tests per label
-rOtherTestsPass :: Rule 
-rOtherTestsPass env rel_tests = countTestTypes filterForOtherTests True env rel_tests 
+rOtherTestsPass :: Rule
+rOtherTestsPass env rel_tests = countTestTypes filterForOtherTests True env rel_tests
 
 -- | Counts failing Other Tests per label
-rOtherTestsFail :: Rule 
-rOtherTestsFail env rel_tests = countTestTypes filterForOtherTests False env rel_tests 
+rOtherTestsFail :: Rule
+rOtherTestsFail env rel_tests = countTestTypes filterForOtherTests False env rel_tests
 
 
--- | Prototype-Function that looks over the labels and TestResults 
--- to count how often the labels are in a Sub-Set of the original TestResults. 
-countTestTypes :: (IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)) -- ^ A filter for which tests to use, e.g. only properties 
+-- | Prototype-Function that looks over the labels and TestResults
+-- to count how often the labels are in a Sub-Set of the original TestResults.
+countTestTypes :: (IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)) -- ^ A filter for which tests to use, e.g. only properties
                 -> Bool                                                                                -- ^ Whether or not we want to count failures or passes (TRUE = Pass)
                 -> Rule                                                                                -- ^ A finished Rule, ready to use.
 countTestTypes filterFunction testStatus _ rel_tests = map countOccurrences
-  where 
+  where
     relevantTests :: IntMap ((String, String), Bool, IntSet)
     relevantTests = IM.filter (\((_,_),b,_) -> b == testStatus) (filterFunction rel_tests)
     touched_labels :: [IntSet]
     touched_labels = [touched | ((_,_),_,touched) <- (IM.elems relevantTests)]
-    countOccurrences :: Label -> Double 
+    countOccurrences :: Label -> Double
     countOccurrences Label {..} =  fromIntegral $ countLocations loc_index touched_labels
       where countLocations :: Int -> [IntSet] -> Int
             countLocations index labels = length (filter (\s -> IS.member index s) labels)
-  
+
 
 -- Number of executions in failing tests
 rTFailFreq :: Rule
@@ -560,7 +587,7 @@ rNumTypeFails = rNumInfoRule "rTFail" selTy (-1) (+)
 rNumInfoRule :: String -> ([String] -> Maybe String)
              -> Double -> (Double -> Double -> Double)
              -> MetaRule
-rNumInfoRule key sel no_val merge rule_locs _ results = 
+rNumInfoRule key sel no_val merge rule_locs _ results =
         map (\(fn,res) -> (fn, map upd res)) results
   where key_loc = rule_locs Map.! key
         all_res = Map.unionsWith merge $ map (Map.fromListWith merge
@@ -578,7 +605,7 @@ rNumInfoRule key sel no_val merge rule_locs _ results =
 
 
 
-    
+
 
 -- A meta rule. Computes in what quantile a given score for a given rule is.
 -- Note that the referenced rule must already exist.

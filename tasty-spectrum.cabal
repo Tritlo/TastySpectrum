@@ -87,7 +87,9 @@ library
                       filepath,
                       directory,
                       lens,
-                      tasty-spectrum-plugin
+                      tasty-spectrum-plugin,
+                      aeson,
+                      bytestring
 
 executable tasty-sbfl
   default-language: Haskell2010
