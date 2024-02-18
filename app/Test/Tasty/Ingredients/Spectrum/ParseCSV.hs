@@ -139,8 +139,10 @@ parseTypes !ts = case T.stripPrefix "-,-,-," ts of
     where parseType !t | T.length t == 0 = []
           parseType !t | Just ('"', t) <- T.uncons t,
                           Just (t, '"') <- T.unsnoc t,
-                          ts <- T.splitOn (T.pack "\",\"") t = map T.unpack ts
+                          ts <- T.splitOn (T.pack "\",\"") t = map (T.unpack . clean) ts
           parseType !t = error ("Invalid type string: " ++ T.unpack t)
+          -- Sometimes the types have newlines in them, which we clean away.
+          clean = T.replace (T.pack "\\n") (T.pack " ")
 
 
 

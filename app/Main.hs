@@ -29,7 +29,8 @@ data Config = Conf {
         use_scaling :: !Bool,
         show_leaf_distance :: !Bool,
         show_root_distance :: !Bool,
-        json :: !Bool
+        json :: !Bool,
+        json_out :: !FilePath
 
     } deriving (Eq, Show)
 
@@ -53,12 +54,13 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
                                           <> mergeCommand
                                           )
               <*> option auto (long "limit" <> value 0 <> short 'n' <> metavar "LIMIT" <> help "The number of results to show")
-              <*> (strOption (long "ignore" <> value "" <> metavar "IGNORE" <> help "Paths to ignore (e.g. 'tests/Main.hs src/Data/Module/File.hs')"))
+              <*> strOption (long "ignore" <> value "" <> metavar "IGNORE" <> help "Paths to ignore (e.g. 'tests/Main.hs src/Data/Module/File.hs')")
               <*> switch (long "use-scaling" <> help "Use ratio of failing/passing evals to sort identical scores")
               <*> switch (long "show-leaf-distance" <> help "Display the distance of the expression from a leaf node")
               <*> switch (long "show-root-distance" <> help "Display the distance of the expression from a root node")
               <*> switch (long "json" <> help "Rules JSON output")
-    where 
+              <*> strOption (long "json-out" <> value "" <> metavar "JSONOUT" <> help "File to write JSON output to")
+    where
           treeCommand :: Mod CommandFields Command
           treeCommand = command "tree" (info (pure Tree) (progDesc "Show a tree of the results"))
           mergeCommand :: Mod CommandFields Command
@@ -72,7 +74,7 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
           weightsCommand :: Mod CommandFields Command
           weightsCommand = command "weights" (info weightsOpts (progDesc "Use the weights"))
 
-          weightsOpts :: Parser Command 
+          weightsOpts :: Parser Command
           weightsOpts = Weights <$> argument str (metavar "PARAMETERS" <> help "Parameters for the weights engine")
 
           dstarCommand :: Mod CommandFields Command
@@ -87,7 +89,7 @@ opts = info (config <**> helper)
          progDesc ("Print the tasty spectrum in TARGET to a tree-view.")  <>
          header "spec-csv-to-tree")
 
--- | This main is running the CSVToForest part only. 
+-- | This main is running the CSVToForest part only.
 -- For use of the "Ingredient" see the repositories Readme.
 main :: IO ()
 main = do Conf {..} <- execParser opts
@@ -102,12 +104,12 @@ main = do Conf {..} <- execParser opts
                                      in filter (anyPrefix . (loc_groups IM.!) . loc_group . head) labeled'
                      tr = (test_results, loc_groups, labeled)
 
-                 case opt_command of 
-                   Tree -> putStrLn $ drawForest $ map (fmap show) 
+                 case opt_command of
+                   Tree -> putStrLn $ drawForest $ map (fmap show)
                                     $ limit $ genForest $ concat labeled
-                   Rules -> runRules json tr'
+                   Rules -> runRules (json, json_out) tr'
                    MergeLines -> mergeLines tr'
-                   
+
                    alg -> let sf = case alg of
                                      Tarantula -> tarantula
                                      Ochiai -> ochiai
@@ -128,7 +130,7 @@ main = do Conf {..} <- execParser opts
                                      else sortOn ((\i -> -i) . snd) $ sf tr
                               ppr ((Label {loc_group=ln, loc_pos=lp}), score) =
                                (loc_groups IM.! ln) <> ":" <> show (toHpcPos lp) <> " " <> show score
-                              
+
                           in if (show_leaf_distance || show_root_distance)
                              then let ds =  if show_leaf_distance
                                             then leafDistances $ concat labeled

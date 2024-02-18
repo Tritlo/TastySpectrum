@@ -45,8 +45,8 @@ import HsTypes
 --
 -- DevNote: Some of the rules are "computation heavy", so in order to make things work performant
 -- the rules are scoped per module (when applicable) to have less memory need and less checks to do.
-runRules :: Bool -> TestResults -> IO ()
-runRules use_json tr@(test_results, loc_groups, grouped_labels) = do
+runRules :: (Bool, FilePath) -> TestResults -> IO ()
+runRules (use_json, json_out) tr@(test_results, loc_groups, grouped_labels) = do
   let total_tests = length test_results
       total_succesful_tests = length $ filter (\(_, b, _) -> b) test_results
       total_failing_tests = total_tests - total_succesful_tests
@@ -157,7 +157,9 @@ runRules use_json tr@(test_results, loc_groups, grouped_labels) = do
                              | otherwise = Nothing
                           ident | [_,i] <- info = Just i
                                 | otherwise = Nothing
-    in BSL.putStr $ Aeson.encode $ json_res
+    in  if null json_out
+        then BSL.putStr $ Aeson.encode json_res
+        else Aeson.encodeFile json_out json_res
 
   else do
     putStrLn "Rules:"
