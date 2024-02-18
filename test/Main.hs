@@ -37,6 +37,13 @@ unitTests = testGroup "Unit tests"
             [ra] = rArity emptyEnv IM.empty lbls
 
         checkExpected [1.0, 1.0] [rc,ra]
+  , testCase "MagicHash parsing works" $ do
+        let hash_type = "Addr#"
+            lbls = [emptyLabel {loc_info = [hash_type]}]
+            [rc] = rConstraints emptyEnv IM.empty lbls
+            [ra] = rArity emptyEnv IM.empty lbls
+
+        checkExpected [0.0, 0.0] [rc,ra]
   ]
   where checkExpected expected res =
             assertBool ("Result and expected don't match, expected: "

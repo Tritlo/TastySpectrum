@@ -19,6 +19,7 @@ import GHC.Driver.DynFlags (languageExtensions)
 import GHC.Driver.Session (languageExtensions)
 #endif
 
+import qualified GHC.LanguageExtensions as LangExt
 import qualified GHC.Data.EnumSet as ES
 
 
@@ -32,7 +33,7 @@ parseInfoType str = case unP parser pst of
 #else
                            Left ("Unable to parse '" ++ str ++ "'")
 #endif
-  where defE = ES.fromList (languageExtensions Nothing)
+  where defE = ES.insert LangExt.MagicHash $ ES.fromList (languageExtensions Nothing)
 #if __GLASGOW_HASKELL__ >= 904
 #if __GLASGOW_HASKELL__ < 908
         emptyDiagOpts = DiagOpts empty empty False False Nothing defaultSDocContext
@@ -60,12 +61,13 @@ import GhcPlugins hiding (empty)
 import Bag (bagToList)
 import DynFlags (languageExtensions)
 import qualified EnumSet as ES
+import qualified GHC.LanguageExtensions as LangExt
 
 parseInfoType :: String -> Either String (HsType GhcPs)
 parseInfoType str = case unP parser pst of
                      POk _ a -> Right a
                      err -> Left ("Unable to parse '" ++ str ++ "'")
- where defE = ES.fromList (languageExtensions Nothing)
+ where defE = ES.insert LangExt.MagicHash $ ES.fromList (languageExtensions Nothing)
 #if __GLASGOW_HASKELL__ <= 806
        flgs = ParserFlags empty defE mainUnitId minBound
 #else

@@ -89,7 +89,8 @@ library
                       lens,
                       tasty-spectrum-plugin,
                       aeson,
-                      bytestring
+                      bytestring,
+                      ghc-boot
 
 executable tasty-sbfl
   default-language: Haskell2010
