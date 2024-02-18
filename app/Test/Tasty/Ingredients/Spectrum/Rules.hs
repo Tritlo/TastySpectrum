@@ -221,6 +221,9 @@ data Environment = Env
     loc_groups :: IntMap String
   }
 
+emptyEnv :: Environment
+emptyEnv = Env 0 0 IM.empty
+
 type Rule =
   Environment ->
   IntMap ((String, String), Bool, IntSet) ->
@@ -367,10 +370,13 @@ rTypeLength _ _ =
 
 -- Type analysis
 analyzeType :: (HsType GhcPs -> Double) -> Rule
-analyzeType analysis _ _ = map ((\Label{..} ->
+analyzeType analysis _ _ = map (\Label{..} ->
     case loc_info of
-        (x:_) | Just t <- parseInfoType x -> analysis t
-        _ -> 0))
+        (x:_) | Right t <- parseInfoType x -> analysis t
+        (x:_) | Left e <- parseInfoType x ->
+          -- We should error here, but we just return -1 instead.
+          error e
+        _ -> -1)
 
 
 -- How many types are there in the type? Int is one, Int -> Int is 3:

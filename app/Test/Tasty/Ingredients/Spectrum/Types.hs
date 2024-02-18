@@ -5,6 +5,7 @@
 {-# LANGUAGE BangPatterns #-}
 module Test.Tasty.Ingredients.Spectrum.Types (
         Label (..),
+        emptyLabel,
         TestResults,
         pprLabel,
         pprLabelOnly,
@@ -23,7 +24,7 @@ import Data.IntSet (IntSet)
 
 import Data.Semigroup((<>))
 
--- | Label is our data type to represent information about a single expression. 
+-- | Label is our data type to represent information about a single expression.
 -- To help with performance, we avoided a real HPC Position in favour of a loc_pos tuple that can be better handled by many libraries.
 -- ! DevNote:
 -- Label is a bit complex, but we try to be performant.
@@ -39,15 +40,19 @@ data Label = Label { loc_group :: !Int,               -- ^ Index of the module t
                                                       --   It should not have 0`s as we do not account for non-evaluated things in our data structure.
                    } deriving (Generic, NFData)
 
--- | Pretty prints (ppr) a label to a human readable HPC Position. 
-pprLabel :: 
+-- An empty label for testing
+emptyLabel :: Label
+emptyLabel = Label 0 (0,0,0,0) 0 [] IM.empty
+
+-- | Pretty prints (ppr) a label to a human readable HPC Position.
+pprLabel ::
   IM.IntMap String -- ^ an IntMap of the Module ID's and their name
   -> Label         -- ^ the label to be pretty printed
   -> String        -- ^ Pretty printed, human readable output matching an HPC Position
 pprLabel loc_groups l@Label{..} =
     pprLabelOnly loc_groups l <> " " <> show loc_evals
 
-pprLabelOnly :: 
+pprLabelOnly ::
   IM.IntMap String -- ^ an IntMap of the Module ID's and their name
   -> Label         -- ^ the label to be pretty printed
   -> String        -- ^ Pretty printed, human readable output matching an HPC Position

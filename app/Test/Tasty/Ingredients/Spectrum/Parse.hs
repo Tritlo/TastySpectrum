@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE RecordWildCards #-}
 module Test.Tasty.Ingredients.Spectrum.Parse where
 import GHC
 #if __GLASGOW_HASKELL__ >= 900
@@ -12,22 +13,34 @@ import GHC.Data.FastString
 import GHC.Utils.Error
 import GHC.Utils.Outputable hiding (empty)
 
+#if __GLASGOW_HASKELL__ >= 908
+import GHC.Driver.DynFlags (languageExtensions)
+#else
+import GHC.Driver.Session (languageExtensions)
+#endif
 
-parseInfoType :: String -> Maybe (HsType GhcPs)
+import qualified GHC.Data.EnumSet as ES
+
+
+parseInfoType :: String -> Either String (HsType GhcPs)
 parseInfoType str = case unP parser pst of
-                        POk _ a -> Just a
-                        PFailed {} -> Nothing
-  where
-
+                        POk _ a -> Right a
+                        PFailed ps ->
+                         -- We need dflags to output earlier than 904.
 #if __GLASGOW_HASKELL__ >= 904
-
+                           Left $ showSDocUnsafe $ ppr $ errors ps
+#else
+                           Left ("Unable to parse '" ++ str ++ "'")
+#endif
+  where defE = ES.fromList (languageExtensions Nothing)
+#if __GLASGOW_HASKELL__ >= 904
 #if __GLASGOW_HASKELL__ < 908
         emptyDiagOpts = DiagOpts empty empty False False Nothing defaultSDocContext
 #endif
-        flgs = mkParserOpts empty emptyDiagOpts [] False False False False
+        flgs = mkParserOpts defE emptyDiagOpts [] False False False False
         pst = initParserState flgs (stringToStringBuffer str) loc
 #elif __GLASGOW_HASKELL__ == 902
-        flgs = mkParserOpts empty empty False False False False
+        flgs = mkParserOpts empty defE False False False False
         pst = initParserState flgs (stringToStringBuffer str) loc
 #else
         flgs = mkParserFlags' empty empty mainUnitId False False False False
@@ -43,16 +56,20 @@ import EnumSet
 import StringBuffer
 import SrcLoc
 import FastString
+import GhcPlugins hiding (empty)
+import Bag (bagToList)
+import DynFlags (languageExtensions)
+import qualified EnumSet as ES
 
-parseInfoType :: String -> Maybe (HsType GhcPs)
+parseInfoType :: String -> Either String (HsType GhcPs)
 parseInfoType str = case unP parser pst of
-                     POk _ a -> Just a
-                     PFailed {} -> Nothing
- where
+                     POk _ a -> Right a
+                     err -> Left ("Unable to parse '" ++ str ++ "'")
+ where defE = ES.fromList (languageExtensions Nothing)
 #if __GLASGOW_HASKELL__ <= 806
-       flgs = ParserFlags empty empty mainUnitId minBound
+       flgs = ParserFlags empty defE mainUnitId minBound
 #else
-       flgs = mkParserFlags' empty empty mainUnitId False False False False
+       flgs = mkParserFlags' empty defE mainUnitId False False False False
 #endif
        pst = mkPStatePure flgs (stringToStringBuffer str) loc
        loc = mkRealSrcLoc nilFS 0 0
