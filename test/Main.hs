@@ -33,15 +33,15 @@ unitTests = testGroup "Unit tests"
   , testCase "Complex type parsing works" $ do
         let complex_type = "forall (m :: * -> *) a. Monad m => SlideLayoutsOf (m a) -> m (SlideLayoutsOf a)"
             lbls = [emptyLabel {loc_info = [complex_type]}]
-            [rc] = rConstraints emptyEnv IM.empty lbls
-            [ra] = rArity emptyEnv IM.empty lbls
+            [rc] = rTypeConstraints emptyEnv IM.empty lbls
+            [ra] = rTypeArity emptyEnv IM.empty lbls
 
         checkExpected [1.0, 1.0] [rc,ra]
   , testCase "MagicHash parsing works" $ do
         let hash_type = "Addr#"
             lbls = [emptyLabel {loc_info = [hash_type]}]
-            [rc] = rConstraints emptyEnv IM.empty lbls
-            [ra] = rArity emptyEnv IM.empty lbls
+            [rc] = rTypeConstraints emptyEnv IM.empty lbls
+            [ra] = rTypeArity emptyEnv IM.empty lbls
 
         checkExpected [0.0, 0.0] [rc,ra]
   ]
