@@ -30,7 +30,8 @@ data Config = Conf {
         show_leaf_distance :: !Bool,
         show_root_distance :: !Bool,
         json :: !Bool,
-        json_out :: !FilePath
+        json_out :: !FilePath,
+        validate_types :: !Bool
 
     } deriving (Eq, Show)
 
@@ -60,6 +61,7 @@ config = Conf <$> argument str (metavar "TARGET" <> help "CSV file to use")
               <*> switch (long "show-root-distance" <> help "Display the distance of the expression from a root node")
               <*> switch (long "json" <> help "Rules JSON output")
               <*> strOption (long "json-out" <> value "" <> metavar "JSONOUT" <> help "File to write JSON output to")
+              <*> switch (long "validate-types" <> help "Validate types when running rules.")
     where
           treeCommand :: Mod CommandFields Command
           treeCommand = command "tree" (info (pure Tree) (progDesc "Show a tree of the results"))
@@ -107,7 +109,7 @@ main = do Conf {..} <- execParser opts
                  case opt_command of
                    Tree -> putStrLn $ drawForest $ map (fmap show)
                                     $ limit $ genForest $ concat labeled
-                   Rules -> runRules (json, json_out) tr'
+                   Rules -> runRules (validate_types, json, json_out) tr'
                    MergeLines -> mergeLines tr'
 
                    alg -> let sf = case alg of

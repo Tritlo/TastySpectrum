@@ -45,8 +45,9 @@ import HsTypes
 --
 -- DevNote: Some of the rules are "computation heavy", so in order to make things work performant
 -- the rules are scoped per module (when applicable) to have less memory need and less checks to do.
-runRules :: (Bool, FilePath) -> TestResults -> IO ()
-runRules (use_json, json_out) tr@(test_results, loc_groups, grouped_labels) = do
+runRules :: (Bool, Bool, FilePath) -> TestResults -> IO ()
+runRules (validate_types, use_json, json_out)
+     tr@(test_results, loc_groups, grouped_labels) = do
   let total_tests = length test_results
       total_succesful_tests = length $ filter (\(_, b, _) -> b) test_results
       total_failing_tests = total_tests - total_succesful_tests
@@ -58,7 +59,8 @@ runRules (use_json, json_out) tr@(test_results, loc_groups, grouped_labels) = do
         Env
           { total_tests = total_tests,
             total_succesful_tests = total_succesful_tests,
-            loc_groups = loc_groups
+            loc_groups = loc_groups,
+            validate_types = validate_types
           }
       r _ _ = map (\Label {..} -> IM.size loc_evals)
       rules =
@@ -139,28 +141,32 @@ runRules (use_json, json_out) tr@(test_results, loc_groups, grouped_labels) = do
           results
           meta_rules
 
-  if use_json then
-    let rks = map fst rules ++ map fst meta_rules
-        json_res = Aeson.toJSON $ map (uncurry construct_kv) meta_results
-        construct_kv :: FilePath -> [((String,[String]), [Double])] -> Aeson.Value
-        construct_kv fn res =
-            Aeson.toJSON $ Map.fromList [("filename", Aeson.toJSON fn),
-                                         ("locations", Aeson.toJSON $ map c res)]
-          where c ((loc,info),vals) = Aeson.toJSON $
-                    Map.fromList  [("location", Aeson.toJSON loc),
-                                   ("info", Aeson.toJSON $
-                                              Map.fromList [("type",ty),
-                                                            ("identifier",ident)]),
-                                   ("results", Aeson.toJSON $
-                                                Map.fromList $ zip rks vals)]
-                    where ty | (x:_) <- info = Just x
-                             | otherwise = Nothing
-                          ident | [_,i] <- info = Just i
-                                | otherwise = Nothing
-    in  if null json_out
-        then BSL.putStr $ Aeson.encode json_res
-        else Aeson.encodeFile json_out json_res
-
+  let all_invalid = concatMap invalidTypes grouped_labels
+  if validate_types && not (null all_invalid)
+  then do mapM_ (putStrLn . \(t,m) -> "`" ++ t ++ "`:" ++ m) all_invalid
+          error "Invalid types found, see above ^"
+  else return ()
+  if use_json then do
+      let rks = map fst rules ++ map fst meta_rules
+          json_res = Aeson.toJSON $ map (uncurry construct_kv) meta_results
+          construct_kv :: FilePath -> [((String,[String]), [Double])] -> Aeson.Value
+          construct_kv fn res =
+              Aeson.toJSON $ Map.fromList [("filename", Aeson.toJSON fn),
+                                          ("locations", Aeson.toJSON $ map c res)]
+            where c ((loc,info),vals) = Aeson.toJSON $
+                      Map.fromList  [("location", Aeson.toJSON loc),
+                                    ("info", Aeson.toJSON $
+                                                Map.fromList [("type",ty),
+                                                              ("identifier",ident)]),
+                                    ("results", Aeson.toJSON $
+                                                  Map.fromList $ zip rks vals)]
+                      where ty | (x:_) <- info = Just x
+                              | otherwise = Nothing
+                            ident | [_,i] <- info = Just i
+                                  | otherwise = Nothing
+        in  if null json_out
+            then BSL.putStr $ Aeson.encode json_res
+            else Aeson.encodeFile json_out json_res
   else do
     putStrLn "Rules:"
     mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
@@ -218,11 +224,12 @@ filterForOtherTests = IM.filter (\((_,t), _, _) -> (t /= "Golden") && (t /= "Tes
 data Environment = Env
   { total_tests :: Int,
     total_succesful_tests :: Int,
-    loc_groups :: IntMap String
+    loc_groups :: IntMap String,
+    validate_types :: Bool
   }
 
 emptyEnv :: Environment
-emptyEnv = Env 0 0 IM.empty
+emptyEnv = Env 0 0 IM.empty False
 
 type Rule =
   Environment ->
@@ -367,16 +374,23 @@ rTypeLength _ _ =
             _ -> 0))
 
 
-
 -- Type analysis
 analyzeType :: (HsType GhcPs -> Double) -> Rule
-analyzeType analysis _ _ = map (\Label{..} ->
+analyzeType analysis Env {..} _ = map (\Label{..} ->
     case loc_info of
         (x:_) | Right t <- parseInfoType x -> analysis t
         (x:_) | Left e <- parseInfoType x ->
-          -- We should error here, but we just return -1 instead.
-          error e
+          if validate_types
+          then error $ "Error while parsing `" ++ x ++ "`:" ++ e
+          else -1
         _ -> -1)
+
+invalidTypes :: [Label] -> [(String,String)]
+invalidTypes = mapMaybe (\Label{..} ->
+    case loc_info of
+        (x:_) | Left e <- parseInfoType x -> Just (x,e)
+        _ -> Nothing
+  )
 
 
 -- How many types are there in the type? Int is one, Int -> Int is 3:
