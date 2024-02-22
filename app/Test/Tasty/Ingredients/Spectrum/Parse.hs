@@ -81,7 +81,7 @@ parseInfoType str = case unP parser pst of
 
 showPsType :: HsType GhcPs -> String
 #if __GLASGOW_HASKELL__ >= 902
-showPsType ty = runSDoc (ppr ty) defaultSDocContext
+showPsType ty = show $ runSDoc (ppr ty) defaultSDocContext
 #else
 showPsType ty = error "Cannot show types in GHC < 9.2"
 #endif
