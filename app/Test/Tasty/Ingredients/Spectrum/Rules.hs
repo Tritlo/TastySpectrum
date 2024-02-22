@@ -105,7 +105,8 @@ runRules (validate_types, use_json, json_out)
           ("rDStar2Quantile", rQuantile "rDStar 2"),
           ("rDStar3Quantile", rQuantile "rDStar 3"),
           ("rNumIdFails", rNumIdFails),
-          ("rNumTypeFails", rNumTypeFails)
+          ("rNumTypeFails", rNumTypeFails),
+          ("rNumSubTypeFails", rNumSubTypeFails)
         ]
       -- [2023-12-31]
       -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
@@ -605,6 +606,35 @@ rNumTypeFails :: MetaRule
 rNumTypeFails = rNumInfoRule "rTFail" selTy (-1) (+)
   where selTy (x:_) = Just x
         selTy _ = Nothing
+
+rNumSubTypeFails :: MetaRule
+rNumSubTypeFails rule_locs Env{..} locs =
+        map (\(fn,res) -> (fn, map upd res)) locs
+  where key = "rTFail"
+        key_loc = rule_locs Map.! key
+        failing_tys :: Set String
+        failing_tys =  Set.unions $
+                        concatMap (mapMaybe (get_ty . snd . fst)
+                            . filter isFailing . snd) locs
+        isFailing (_,vals) = vals L.!! key_loc > 0
+        get_ty (x:_) = case parseInfoType x of
+                          Right t ->
+                                Just $ Set.fromList
+                                     $ map showPsType $ flatTy t
+                          _ -> Nothing
+        get_ty [] = Nothing
+        flatTy = universeOf uniplate
+
+        upd :: ((String,[String]), [Double])
+            -> ((String,[String]), [Double])
+        upd ((l,inf), vals) =  ((l,inf), vals ++ [fromIntegral $ nv])
+          where nv | (ty_str:_) <- inf,
+                     Right t <- parseInfoType ty_str,
+                     sub_tys <- map showPsType (flatTy t)
+                    = length $ filter (flip Set.member failing_tys) sub_tys
+                   | otherwise = -1
+
+
 
 rNumInfoRule :: String -> ([String] -> Maybe String)
              -> Double -> (Double -> Double -> Double)

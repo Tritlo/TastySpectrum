@@ -23,6 +23,7 @@ import qualified GHC.LanguageExtensions as LangExt
 import qualified GHC.Data.EnumSet as ES
 
 
+
 parseInfoType :: String -> Either String (HsType GhcPs)
 parseInfoType str = case unP parser pst of
                         POk _ a -> Right a
@@ -77,3 +78,7 @@ parseInfoType str = case unP parser pst of
        loc = mkRealSrcLoc nilFS 0 0
        parser = unLoc <$> parseType
 #endif
+
+
+showPsType :: HsType GhcPs -> String
+showPsType ty = showSDocUnsafe (ppr ty)
