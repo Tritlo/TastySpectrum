@@ -23,6 +23,7 @@ import qualified GHC.LanguageExtensions as LangExt
 import qualified GHC.Data.EnumSet as ES
 
 
+
 parseInfoType :: String -> Either String (HsType GhcPs)
 parseInfoType str = case unP parser pst of
                         POk _ a -> Right a
@@ -76,4 +77,11 @@ parseInfoType str = case unP parser pst of
        pst = mkPStatePure flgs (stringToStringBuffer str) loc
        loc = mkRealSrcLoc nilFS 0 0
        parser = unLoc <$> parseType
+#endif
+
+showPsType :: HsType GhcPs -> String
+#if __GLASGOW_HASKELL__ >= 902
+showPsType ty = show $ runSDoc (ppr ty) defaultSDocContext
+#else
+showPsType ty = error "Cannot show types in GHC < 9.2"
 #endif
