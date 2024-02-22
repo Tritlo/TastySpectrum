@@ -628,11 +628,17 @@ rNumSubTypeFails rule_locs Env{..} locs =
         upd :: ((String,[String]), [Double])
             -> ((String,[String]), [Double])
         upd ((l,inf), vals) =  ((l,inf), vals ++ [fromIntegral $ nv])
+#if __GLASGOW_HASKELL__ >= 902
           where nv | (ty_str:_) <- inf,
                      Right t <- parseInfoType ty_str,
                      sub_tys <- map showPsType (flatTy t)
                     = length $ filter (flip Set.member failing_tys) sub_tys
                    | otherwise = -1
+#else
+          -- We cannot turn types back into string on GHC <= 9.2
+          where nv = -1
+#endif
+
 
 
 
