@@ -135,7 +135,7 @@ parseTypes !ts = case T.stripPrefix "-,-,-," ts of
                               Just (r, ']') <- T.unsnoc r,
                               tys <- T.splitOn (T.pack "],[") r
                               -> map parseType tys
-                    _ -> error "Invalid prefix for location types"
+                    _ -> error "Invalid prefix for location types. Did you run it on a non-typed spectrum?"
     where parseType !t | T.length t == 0 = []
           parseType !t | Just ('"', t) <- T.uncons t,
                           Just (t, '"') <- T.unsnoc t,

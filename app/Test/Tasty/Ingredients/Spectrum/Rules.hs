@@ -88,6 +88,7 @@ runRules (validate_types, use_json, json_out)
           ("rRogot1", rRogot1),
           ("rASTLeaf", rASTLeaf),
           ("rTFailFreqDiffParent", rTFailFreqDiffParent),
+          ("rDistToFailure", rDistToFailure),
           ("rIsIdentifier",rIsIdentifier),
           ("rTypeLength", rTypeLength),
           ("rTypeArity",rTypeArity),
@@ -594,6 +595,56 @@ rTFailFreqDiffParent _ rel_tests labels = map (sum . res) labels
             e <- fromIntegral <$> evs IM.!? test_index
             pe <- fromIntegral <$> p_evs IM.!? test_index
             return (e / pe)
+
+-- [2024-02-23]
+-- | Calculates how many nodes up and down you have to go in the AST to find a
+--   failure. I.e. first cousins would be 4, first cousin twice removed would
+--   be 6 etc. Gives -1 if there is no path
+rDistToFailure :: Rule
+rDistToFailure env rel_tests labels =
+    if null failing_inds
+    then replicate (length labels) (fromIntegral (-1))
+    else map dist_to_failing labels
+  where (_, _, pmap) = genParentsAndChildren labels
+
+        dist_to_failing :: Label -> Double
+        -- 4. For a label
+        dist_to_failing (Label {loc_index = li}) =
+            fromIntegral $
+            -- If it is failing or a parent of a failing,
+            -- it is trivial
+            case dists_to_failing_parents IM.!? li of
+                Just d -> d
+                Nothing ->
+                    -- Otherwise, we generate a list of
+                    -- distances from this node to its
+                    -- parents, and then get the distance
+                    let parents = fst (pmap IM.! li)
+                    in case go (zip parents [1..]) of
+                        Just res ->  res
+                        _ -> (-1)
+        -- 3. For a list of parents and distances,
+        --    we calculate how far it is from a
+        --    failing location
+        go ((p,d):ps) =
+            case dists_to_failing_parents IM.!? p of
+              Just pd -> Just $ pd + d
+              Nothing -> go ps
+        go [] = Nothing
+        -- 2. For failing indices, we calculate
+        --    the distance of each of them to their parents
+        dists_to_failing_parents =
+            IM.unionsWith min $
+            map (\fi -> IM.fromList $
+                  (fi,0):zip (fst $ pmap IM.! fi) [1..])
+                  failing_inds
+
+        -- 1. We find the failing indices
+        failing_inds = mapMaybe has_failure labels
+        has_failure Label {..} = if (any (< 0) $ IM.elems loc_evals)
+                                  then Just loc_index
+                                  else Nothing
+
 
 -- How many times is the identifier, if present, involved in a fault?
 rNumIdFails :: MetaRule
