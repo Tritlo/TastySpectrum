@@ -604,12 +604,12 @@ rDistToFailure :: Rule
 rDistToFailure env rel_tests labels =
     if null failing_inds
     then replicate (length labels) (fromIntegral (-1))
-    else map dist_to_failing labels
+    else map distToFailing labels
   where (_, _, pmap) = genParentsAndChildren labels
 
-        dist_to_failing :: Label -> Double
+        distToFailing :: Label -> Double
         -- 4. For a label
-        dist_to_failing (Label {loc_index = li}) =
+        distToFailing (Label {loc_index = li}) =
             fromIntegral $
             -- If it is failing or a parent of a failing,
             -- it is trivial
