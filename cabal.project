@@ -1,5 +1,6 @@
 packages: .
           TestPlugin/
           plugin/
+          spectrum-example/
 
 tests: True
