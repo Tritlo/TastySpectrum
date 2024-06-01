@@ -86,6 +86,7 @@ library
                       deepseq,
                       filepath,
                       directory,
+                      time,
                       lens,
                       tasty-spectrum-plugin,
                       aeson,

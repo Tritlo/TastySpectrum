@@ -47,6 +47,8 @@ import System.IO (hPutStrLn, stderr)
 import System.FilePath as FP
 import System.Directory as Dir
 
+import qualified Data.Time as Time
+
 newtype GetTestSpectrum = GetTestSpectrum Bool
   deriving (Eq, Ord, Typeable)
 
@@ -264,12 +266,25 @@ checkTastyTree timeout test =
     _ -> return False
   where
     with_timeout = localOption timeout test
+    Timeout to _ = timeout
     waitUntilDone :: TVar TR.Status -> IO Bool
-    waitUntilDone status_var = atomically $ do
-      status <- readTVar status_var
-      case status of
-        TR.Done res -> return $ TR.resultSuccessful res
-        _ -> retry
+    waitUntilDone status_var =
+            do st <- Time.getCurrentTime
+               loop st
+
+      where loop s = do
+                res <- atomically $ do status <- readTVar status_var
+                                       case status of
+                                         TR.Done res -> return $ Just (TR.resultSuccessful res)
+                                         _ ->  return Nothing
+                case res of
+                  Just r -> return r
+                  Nothing -> do nt <- Time.getCurrentTime
+                                if (realToFrac $ Time.diffUTCTime nt s) > ((fromInteger to) / 1000000.0)
+                                then return False
+                                else loop s
+
+
 
     reportFun :: TR.StatusMap -> IO (TR.Time -> IO Bool)
     -- We completely ignore the parallelism here
