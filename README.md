@@ -82,3 +82,75 @@ We assume you have a cabal project with a tasty test suite, that you can run wit
 We also opened a little [Troubleshooting](./KNOWN_ISSUES.md) and some [design decisions](./DESIGN_NOTES.md)
 
 *Important*: The resulting spectrum might take some disk space. Our run on pandoc produces a ~500mb spectrum. 
+
+## Filtering
+
+To filter, you use expressions:
+
+```sh
+tasty-sbfl example.csv filter --expr "rOchiai >= 0.5"
+```
+
+Expressions have the following grammar:
+
+```
+<expr> ::= <comp>
+        | not (<expr>)
+        | (<expr>) && (<expr>)
+        | (<expr>) || (<expr>)
+
+<comp> ::= <rule> <op> <Double>
+<op>   ::= ">=" | "<=" | ">" | "<" | "=="
+<rule> ::= "rTFail"
+         | "rTPass"
+         | "rPropFail"
+         | "rPropPass"
+         | "rUnitFail"
+         | "rUnitPass"
+         | "rGoldenFail"
+         | "rGoldenPass"
+         | "rOtherTestFail"
+         | "rOtherTestPass"
+         | "rTFailFreq"
+         | "rTPassFreq"
+         | "rTFailUniqueBranch"
+         | "rJaccard"
+         | "rHamming"
+         | "rOptimal"
+         | "rOptimalP"
+         | "rTarantula"
+         | "rOchiai"
+         | "rDStar2"
+         | "rDStar3"
+         | "rRogot1"
+         | "rASTLeaf"
+         | "rTFailFreqDiffParent"
+         | "rDistToFailure"
+         | "rIsIdentifier"
+         | "rTypeLength"
+         | "rTypeArity"
+         | "rTypeOrder"
+         | "rTypeFunArgs"
+         | "rTypeConstraints"
+         | "rTypePrimitives"
+         | "rTypeSubTypes"
+         | "rTypeArrows"
+         | "rTarantulaQuantile"
+         | "rOchiaiQuantile"
+         | "rDStar2Quantile"
+         | "rDStar3Quantile"
+         | "rNumIdFails"
+         | "rNumTypeFails"
+         | "rNumSubTypeFails"
+```
+
+Examples (note we need a lot of parenthesis, but *not* if we only have one expression):
+
+```
+  rOchiai >= 0.1
+
+  (rOchiai >= 0.2) || (not (rASTLeaf == 0.0))
+
+  (rTarantula < 0.7) && (rIsIdentifier == 1.0)
+
+```
