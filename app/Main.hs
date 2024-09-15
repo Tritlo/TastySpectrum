@@ -42,6 +42,7 @@ data Command
     | Ochiai
     | DStar Integer
     | MergeLines
+    | Filter String
     deriving (Show, Eq)
 
 config :: Parser Config
@@ -56,6 +57,7 @@ config =
                 <> ochiaiCommand
                 <> dstarCommand
                 <> mergeCommand
+                <> filterCommand
             )
         <*> option auto (long "limit" <> value 0 <> short 'n' <> metavar "LIMIT" <> help "The number of results to show")
         <*> strOption (long "ignore" <> value "" <> metavar "IGNORE" <> help "Paths to ignore (e.g. 'tests/Main.hs src/Data/Module/File.hs')")
@@ -86,6 +88,11 @@ config =
     dstarCommand = command "dstar" (info dstarOpts (progDesc "Use the dstar algorithm with the given k"))
     dstarOpts :: Parser Command
     dstarOpts = DStar <$> argument auto (metavar "K" <> help "The k to use for dstar")
+
+    filterCommand :: Mod CommandFields Command
+    filterCommand = command "filter" (info filterOpts (progDesc "Use an expression to filter a spectrum"))
+    filterOpts :: Parser Command
+    filterOpts = Filter <$> strOption (long "expr" <> metavar "<expr>" <> help "The expression to use to filter")
 
 opts :: ParserInfo Config
 opts =
@@ -126,6 +133,13 @@ main = do
                                         concat labeled
                 Rules -> runRules (validate_types, json, json_out) tr'
                 MergeLines -> mergeLines tr'
+                Filter expr -> do
+                    let (_, mr) = applyRules validate_types tr'
+                        fexpr = read expr
+                    print expr
+                    print fexpr
+                    mergeLines $ compileFilterExpr fexpr mr tr'
+
                 alg ->
                     let sf = case alg of
                             Tarantula -> tarantula

@@ -131,7 +131,7 @@ instance Show FilterOp where
     show FLeq = "<="
     show FGt = ">"
     show FLt = "<"
-    show FEq = "<"
+    show FEq = "=="
 
 data FilterExpr
     = FAnd FilterExpr FilterExpr
@@ -149,8 +149,12 @@ instance Show FilterExpr where
     show (FEComp e1) =
         show e1
 
+
+instance Read FilterExpr where
+  readsPrec _ = RP.readP_to_S parseFilterExpr
+
 parseFilterExpr :: RP.ReadP FilterExpr
-parseFilterExpr = RP.choice [pand, por, pc]
+parseFilterExpr = RP.choice [pand, por, pc, pnot]
   where
     pand = do
         RP.char '('
