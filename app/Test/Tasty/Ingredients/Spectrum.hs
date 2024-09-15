@@ -331,9 +331,6 @@ checkTastyTree timeout test =
         _ -> return False
   where
     with_timeout = localOption timeout test
-    mb_to = case timeout of
-        Timeout t' _ -> Just t'
-        _ -> Nothing
     waitUntilDone :: TVar TR.Status -> IO Bool
     waitUntilDone status_var =
         do
@@ -350,8 +347,8 @@ checkTastyTree timeout test =
                 Just r -> return r
                 Nothing -> do
                     nt <- Time.getCurrentTime
-                    case mb_to of
-                        Just to ->
+                    case timeout of
+                        (Timeout to _) ->
                             if realToFrac (Time.diffUTCTime nt s) > (fromInteger to / 1000000.0)
                                 then return False
                                 else loop s
