@@ -306,7 +306,7 @@ unfoldTastyTests =
                 TR.SingleTest name test
             )
         ]
-    fg gopts gname = map (\((n, tt), t) -> ((gname <> "/" <> n, tt), TR.PlusTestOptions (gopts <>) $ t))
+    fg gopts gname = map (\((n, tt), t) -> ((gname <> "/" <> n, tt), TR.PlusTestOptions (gopts <>) t))
 
 {- | This function runs a single test - but a single test and a test-collection share the same type in tasty.
 The result is the test-status. True on pass, false on fail or error.
@@ -331,7 +331,9 @@ checkTastyTree timeout test =
         _ -> return False
   where
     with_timeout = localOption timeout test
-    Timeout to _ = timeout
+    mb_to = case timeout of
+        Timeout t' _ -> Just t'
+        _ -> Nothing
     waitUntilDone :: TVar TR.Status -> IO Bool
     waitUntilDone status_var =
         do
@@ -348,9 +350,12 @@ checkTastyTree timeout test =
                 Just r -> return r
                 Nothing -> do
                     nt <- Time.getCurrentTime
-                    if (realToFrac $ Time.diffUTCTime nt s) > ((fromInteger to) / 1000000.0)
-                        then return False
-                        else loop s
+                    case mb_to of
+                        Just to ->
+                            if realToFrac (Time.diffUTCTime nt s) > (fromInteger to / 1000000.0)
+                                then return False
+                                else loop s
+                        _ -> loop s
 
     reportFun :: TR.StatusMap -> IO (TR.Time -> IO Bool)
     -- We completely ignore the parallelism here
