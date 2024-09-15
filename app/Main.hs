@@ -136,9 +136,7 @@ main = do
                 Filter expr -> do
                     let (_, mr) = applyRules validate_types tr'
                         fexpr = read expr
-                    print expr
-                    print fexpr
-                    mergeLines $ compileFilterExpr fexpr mr tr'
+                    printSpectrum $ compileFilterExpr fexpr mr tr'
 
                 alg ->
                     let sf = case alg of

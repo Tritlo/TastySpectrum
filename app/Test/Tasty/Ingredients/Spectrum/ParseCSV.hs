@@ -99,6 +99,50 @@ parseEntry !t = case p of
                                 return (pf <> "\"" <> r2, res2)
                         _ -> return (pf, rs)
 
+-- Print a spectrum back
+printSpectrum :: Spectrum -> IO ()
+printSpectrum (tests, fns, mods) =
+    do
+        TIO.putStr "test_name,test_type,test_result,"
+        TIO.putStrLn header_info
+        TIO.putStrLn ("-,-,-," <> type_info)
+        mapM_ (uncurry printTest) $ zip [0 ..] tests
+  where
+    header_info :: T.Text
+    header_info = T.intercalate (T.pack ",") $ map (\(i, rs) -> (tol i) $ map fst rs) lines
+
+    type_info = T.intercalate (T.pack ",") $ map (uncurry tot) tys
+    tol :: Int -> [(Int, Int, Int, Int)] -> T.Text
+    tol i lns =
+        T.intercalate (T.pack ",") $
+            map (\t -> T.pack $ show $ fn ++ ":" ++ show (toHpcPos t)) lns
+      where
+        fn = fns IM.! i
+    tot :: Int -> [[String]] -> T.Text
+    tot i lns = T.intercalate (T.pack ",") $ map (T.pack . show ) lns
+    printTest :: Int -> ((String, String), Bool, IntSet) -> IO ()
+    printTest t_id ((t_name, t_type), t_res, _) =
+        do
+            TIO.putStr $ T.pack $ show t_name ++ "," ++ show t_type ++ "," ++ show t_res ++ ","
+            TIO.putStrLn $ T.intercalate (T.pack ",") $ map (T.pack . show . abs) t_evals
+      where
+        t_evals = map (IM.findWithDefault 0 t_id) test_r
+
+    test_r :: [IntMap Integer]
+    test_r = map snd $ concatMap snd lines
+    lines :: [(Int, [((Int, Int, Int,Int), IntMap Integer)])]
+    lines = map toLines' $ IM.elems mods
+    tys :: [(Int, [[String]])]
+    tys = map toTys' $ IM.elems mods
+    toLines' :: [Label] -> (Int, [((Int, Int, Int, Int), IntMap Integer)])
+    toLines' lbls@(l : _) = (loc_group l, fls)
+      where
+        f l = (loc_pos l, loc_evals l)
+        fls :: [((Int, Int, Int, Int), IntMap Integer)]
+        fls = map f lbls
+    toTys' :: [Label] -> (Int, [[String]])
+    toTys' lbls@(l : _) = (loc_group l, map loc_info lbls)
+
 -- Compresses a spectrum to the line level
 mergeLines :: Spectrum -> IO ()
 mergeLines (tests, fns, mods) =
