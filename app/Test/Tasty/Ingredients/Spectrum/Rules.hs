@@ -68,7 +68,7 @@ runRules
                 , ("rPropFail", rPropertiesFail)
                 , ("rPropPass", rPropertiesPass)
                 , ("rUnitFail", rUnitTestFail)
-                , ("rUnitPass", \env rel_tests -> countTestTypes filterForUnitTests True env rel_tests)
+                , ("rUnitPass", countTestTypes filterForUnitTests True)
                 , ("rGoldenFail", rGoldenFail)
                 , ("rGoldenPass", rGoldenPass)
                 , ("rOtherTestFail", rOtherTestsFail)
@@ -99,15 +99,15 @@ runRules
                 , ("rTypeArrows", rTypeArrows)
                 ]
 
-            meta_rules =
-                [ ("rTarantulaQuantile", rQuantile "rTarantula")
-                , ("rOchiaiQuantile", rQuantile "rOchiai")
-                , ("rDStar2Quantile", rQuantile "rDStar 2")
-                , ("rDStar3Quantile", rQuantile "rDStar 3")
-                , ("rNumIdFails", rNumIdFails)
-                , ("rNumTypeFails", rNumTypeFails)
-                , ("rNumSubTypeFails", rNumSubTypeFails)
-                ]
+            -- meta_rules =
+            --     [ ("rTarantulaQuantile", rQuantile "rTarantula")
+            --     , ("rOchiaiQuantile", rQuantile "rOchiai")
+            --     , ("rDStar2Quantile", rQuantile "rDStar 2")
+            --     , ("rDStar3Quantile", rQuantile "rDStar 3")
+            --     , ("rNumIdFails", rNumIdFails)
+            --     , ("rNumTypeFails", rNumTypeFails)
+            --     , ("rNumSubTypeFails", rNumSubTypeFails)
+            --     ]
             -- [2023-12-31]
             -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
             -- stream* the labels into the rules, as far as is allowed,
@@ -139,12 +139,12 @@ runRules
             pmap :: (NFData b) => (a -> b) -> [a] -> [b]
             pmap f = withStrategy (parList rdeepseq) . map f
 
-            rule_names = Map.fromList $ zip (map fst rules ++ map fst meta_rules) [0 ..]
-            meta_results =
-                L.foldl'
-                    (\res (_, meta_rule) -> meta_rule rule_names env res)
-                    results
-                    meta_rules
+        -- rule_names = Map.fromList $ zip (map fst rules ++ map fst meta_rules) [0 ..]
+        -- meta_results =
+        --     L.foldl'
+        --         (\res (_, meta_rule) -> meta_rule rule_names env res)
+        --         results
+        --         meta_rules
 
         let all_invalid = concatMap invalidTypes grouped_labels
         when (validate_types && not (null all_invalid)) $
@@ -153,8 +153,8 @@ runRules
                 error "Invalid types found, see above ^"
         if use_json
             then do
-                let rks = map fst rules ++ map fst meta_rules
-                    json_res = Aeson.toJSON $ map (uncurry construct_kv) meta_results
+                let rks = map fst rules -- ++ map fst meta_rules
+                    json_res = Aeson.toJSON $ map (uncurry construct_kv) results
                     construct_kv :: FilePath -> [((String, [String]), [Double])] -> Aeson.Value
                     construct_kv fn res =
                         Aeson.toJSON $
@@ -195,10 +195,10 @@ runRules
             else do
                 putStrLn "Rules:"
                 mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
-                mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
+                -- mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
                 putStrLn ""
                 putStrLn "Results:"
-                mapM_ (putStrLn . \(fn, rule_results) -> "  " ++ fn ++ ":\n    " ++ show rule_results) meta_results
+                mapM_ (putStrLn . \(fn, rule_results) -> "  " ++ fn ++ ":\n    " ++ show rule_results) results
 
 data JsonResult = JR
     { jr_location :: String
