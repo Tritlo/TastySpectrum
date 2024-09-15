@@ -94,11 +94,10 @@ instance Ord Label where
 
 -- | The fully parsed Spectrum consisting of Locations, Tests and their Execution
 type Spectrum =
-    -- | The resulting labels and how often they have been executed. The labels also carry the test-status in their loc_evals (see above). Grouped by modules.
     ( [((String, String), Bool, IntSet)]
-    , -- \^ A list of ((TestName,TestType), TestStatus, InvolvedLabels).
-      --  True=Passing Test, False=Failing Test
+    , -- ^ A list of ((TestName,TestType), TestStatus, InvolvedLabels). True=Passing Test, False=Failing Test
       IntMap String
-    , -- \^ A map that gives the filename of each group of locations (i.e. modules)
+    , -- ^ A map that gives the filename of each group of locations (i.e. modules)
       IntMap [Label]
+      --  ^ The resulting labels and how often they have been executed. The labels also carry the test-status in their loc_evals (see above). Grouped by modules.
     )

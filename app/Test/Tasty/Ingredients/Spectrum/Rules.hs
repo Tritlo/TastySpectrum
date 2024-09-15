@@ -1,5 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -Wno-missing-fields #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
@@ -36,6 +38,7 @@ import GHC
 
 import Control.Monad (when)
 import GHC.Hs.Type
+import GHC.Generics (Generic)
 
 {- | runRules executes all rules and outputs their results to the console.
 After applying all rules, it terminates the program.
@@ -43,108 +46,137 @@ After applying all rules, it terminates the program.
 DevNote: Some of the rules are "computation heavy", so in order to make things work performant
 the rules are scoped per module (when applicable) to have less memory need and less checks to do.
 -}
-runRules :: (Bool, Bool, FilePath) -> Spectrum -> IO ()
-runRules
-    (validate_types, use_json, json_out)
-    tr@(test_results, loc_groups, grouped_labels) = do
-        let total_tests = length test_results
-            total_succesful_tests = length $ filter (\(_, b, _) -> b) test_results
-            total_failing_tests = total_tests - total_succesful_tests
-            showPos :: (Int, Int, Int, Int) -> String
-            showPos = show . toHpcPos
-            showInfo :: [String] -> String
-            showInfo = show
-            env =
-                Env
-                    { total_tests = total_tests
-                    , total_succesful_tests = total_succesful_tests
-                    , loc_groups = loc_groups
-                    , validate_types = validate_types
-                    }
-            r _ _ = map (\Label{..} -> IM.size loc_evals)
-            rules =
-                [ ("rTFail", rTFail)
-                , ("rTPass", rTPass)
-                , ("rPropFail", rPropertiesFail)
-                , ("rPropPass", rPropertiesPass)
-                , ("rUnitFail", rUnitTestFail)
-                , ("rUnitPass", countTestTypes filterForUnitTests True)
-                , ("rGoldenFail", rGoldenFail)
-                , ("rGoldenPass", rGoldenPass)
-                , ("rOtherTestFail", rOtherTestsFail)
-                , ("rOtherTestPass", rOtherTestsPass)
-                , ("rTFailFreq", rTFailFreq)
-                , ("rTPassFreq", rTPassFreq)
-                , ("rTFailUniqueBranch", rTFailUniqueBranch)
-                , ("rJaccard", rJaccard)
-                , ("rHamming", rHamming)
-                , ("rOptimal", rOptimal)
-                , ("rOptimalP", rOptimalP)
-                , ("rTarantula", rTarantula)
-                , ("rOchiai", rOchiai)
-                , ("rDStar 2", rDStar 2)
-                , ("rDStar 3", rDStar 3)
-                , ("rRogot1", rRogot1)
-                , ("rASTLeaf", rASTLeaf)
-                , ("rTFailFreqDiffParent", rTFailFreqDiffParent)
-                , ("rDistToFailure", rDistToFailure)
-                , ("rIsIdentifier", rIsIdentifier)
-                , ("rTypeLength", rTypeLength)
-                , ("rTypeArity", rTypeArity)
-                , ("rTypeOrder", rTypeOrder)
-                , ("rTypeFunArgs", rTypeFunArgs)
-                , ("rTypeConstraints", rTypeConstraints)
-                , ("rTypePrimitives", rTypePrimitives)
-                , ("rTypeSubTypes", rTypeSubTypes)
-                , ("rTypeArrows", rTypeArrows)
-                ]
+allRules =
+    [ ("rTFail", rTFail)
+    , ("rTPass", rTPass)
+    , ("rPropFail", rPropertiesFail)
+    , ("rPropPass", rPropertiesPass)
+    , ("rUnitFail", rUnitTestFail)
+    , ("rUnitPass", countTestTypes filterForUnitTests True)
+    , ("rGoldenFail", rGoldenFail)
+    , ("rGoldenPass", rGoldenPass)
+    , ("rOtherTestFail", rOtherTestsFail)
+    , ("rOtherTestPass", rOtherTestsPass)
+    , ("rTFailFreq", rTFailFreq)
+    , ("rTPassFreq", rTPassFreq)
+    , ("rTFailUniqueBranch", rTFailUniqueBranch)
+    , ("rJaccard", rJaccard)
+    , ("rHamming", rHamming)
+    , ("rOptimal", rOptimal)
+    , ("rOptimalP", rOptimalP)
+    , ("rTarantula", rTarantula)
+    , ("rOchiai", rOchiai)
+    , ("rDStar 2", rDStar 2)
+    , ("rDStar 3", rDStar 3)
+    , ("rRogot1", rRogot1)
+    , ("rASTLeaf", rASTLeaf)
+    , ("rTFailFreqDiffParent", rTFailFreqDiffParent)
+    , ("rDistToFailure", rDistToFailure)
+    , ("rIsIdentifier", rIsIdentifier)
+    , ("rTypeLength", rTypeLength)
+    , ("rTypeArity", rTypeArity)
+    , ("rTypeOrder", rTypeOrder)
+    , ("rTypeFunArgs", rTypeFunArgs)
+    , ("rTypeConstraints", rTypeConstraints)
+    , ("rTypePrimitives", rTypePrimitives)
+    , ("rTypeSubTypes", rTypeSubTypes)
+    , ("rTypeArrows", rTypeArrows)
+    ]
 
-            -- meta_rules =
-            --     [ ("rTarantulaQuantile", rQuantile "rTarantula")
-            --     , ("rOchiaiQuantile", rQuantile "rOchiai")
-            --     , ("rDStar2Quantile", rQuantile "rDStar 2")
-            --     , ("rDStar3Quantile", rQuantile "rDStar 3")
-            --     , ("rNumIdFails", rNumIdFails)
-            --     , ("rNumTypeFails", rNumTypeFails)
-            --     , ("rNumSubTypeFails", rNumSubTypeFails)
-            --     ]
-            -- [2023-12-31]
-            -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
-            -- stream* the labels into the rules, as far as is allowed,
-            -- though we (sadly) need to parse the whole file first due to
-            -- how it is laid out.
-            results =
-                pmap
-                    ( \ls_mod@(Label{loc_group = lc} : _) ->
-                        ( loc_groups IM.! lc
-                        , zip
+data ModResult
+    = MR
+    { r_loc_group :: Int -- The module this result applies to
+    , r_result ::
+        [ ( ( Int
+            , (Int,Int,Int,Int) -- Position
+            , [String] -- "Info (type)"
+            )
+          , [Double] -- Result for each rule
+          )
+        ]
+    }
+  deriving (Generic, NFData)
+
+filterRule
+   ::  [ModResult] -- cached results
+   ->  [String] -- Rules to apply on
+   ->  ([Double] -> Bool) -- condition
+   ->  Spectrum
+   ->  Spectrum
+filterRule results rule_names cond tr@(test_results, loc_groups, grouped_labels)
+   = if length rule_inds /= length rule_names
+     then error $ "filterRule: rules not found! " <> show rule_names <> ")"
+     else let grouped_labels'= IM.map (filter (\Label{..} -> loc_index `IS.member` locs_that_match)) grouped_labels
+              test_results' = map (\(s,b,inv) -> (s,b, inv `IS.intersection` locs_that_match)) test_results
+          in (test_results', loc_groups, grouped_labels')
+    where simplify MR{..} = map (\((i,_,_), r) -> (i,r)) r_result
+          rule_inds = mapMaybe (`L.elemIndex` map fst allRules) rule_names
+          thoseThatHold = map fst .filter (\(_,r) -> cond (map (r !!) rule_inds))
+          locs_that_match = IS.fromList $ concatMap (thoseThatHold  . simplify) results
+
+
+applyRules :: Bool -> Spectrum -> (IntMap [Label], [ModResult])
+applyRules validate_types tr@(test_results, loc_groups, grouped_labels) =
+    let total_tests = length test_results
+        total_succesful_tests = length $ filter (\(_, b, _) -> b) test_results
+        total_failing_tests = total_tests - total_succesful_tests
+        showInfo :: [String] -> String
+        showInfo = show
+        env =
+            Env
+                { total_tests = total_tests
+                , total_succesful_tests = total_succesful_tests
+                , loc_groups = loc_groups
+                , validate_types = validate_types
+                }
+        r _ _ = map (\Label{..} -> IM.size loc_evals)
+
+        -- meta_rules =
+        --     [ ("rTarantulaQuantile", rQuantile "rTarantula")
+        --     , ("rOchiaiQuantile", rQuantile "rOchiai")
+        --     , ("rDStar2Quantile", rQuantile "rDStar 2")
+        --     , ("rDStar3Quantile", rQuantile "rDStar 3")
+        --     , ("rNumIdFails", rNumIdFails)
+        --     , ("rNumTypeFails", rNumTypeFails)
+        --     , ("rNumSubTypeFails", rNumSubTypeFails)
+        --     ]
+        -- [2023-12-31]
+        -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
+        -- stream* the labels into the rules, as far as is allowed,
+        -- though we (sadly) need to parse the whole file first due to
+        -- how it is laid out.
+        results =
+            pmap
+                ( \ls_mod@(Label{loc_group = lc} : _) ->
+                    MR lc
+                        $ zip
                             ( map
                                 ( \Label{..} ->
-                                    ( showPos loc_pos
+                                    ( loc_index
+                                    , loc_pos
                                     , loc_info
                                     )
                                 )
                                 ls_mod
                             )
-                            $ L.transpose
-                            $ map
-                                ( \(_, rule) ->
-                                    rule env (relevantTests test_results ls_mod) ls_mod
-                                )
-                                rules
-                        )
-                    )
-                    $ IM.elems grouped_labels
+                        $ L.transpose
+                        $ map
+                            ( \(_, rule) ->
+                                rule env (relevantTests test_results ls_mod) ls_mod
+                            )
+                            allRules
+                )
+                $ IM.elems grouped_labels
 
-            pmap :: (NFData b) => (a -> b) -> [a] -> [b]
-            pmap f = withStrategy (parList rdeepseq) . map f
+        pmap :: (NFData b) => (a -> b) -> [a] -> [b]
+        pmap f = withStrategy (parList rdeepseq) . map f
+     in (grouped_labels, results)
 
-        -- rule_names = Map.fromList $ zip (map fst rules ++ map fst meta_rules) [0 ..]
-        -- meta_results =
-        --     L.foldl'
-        --         (\res (_, meta_rule) -> meta_rule rule_names env res)
-        --         results
-        --         meta_rules
+runRules :: (Bool, Bool, FilePath) -> Spectrum -> IO ()
+runRules
+    (validate_types, use_json, json_out)
+    tr@(test_results, loc_groups, grouped_labels) = do
+        let (grouped_labels, results) = applyRules validate_types tr
 
         let all_invalid = concatMap invalidTypes grouped_labels
         when (validate_types && not (null all_invalid)) $
@@ -153,20 +185,21 @@ runRules
                 error "Invalid types found, see above ^"
         if use_json
             then do
-                let rks = map fst rules -- ++ map fst meta_rules
-                    json_res = Aeson.toJSON $ map (uncurry construct_kv) results
-                    construct_kv :: FilePath -> [((String, [String]), [Double])] -> Aeson.Value
-                    construct_kv fn res =
+                let rks = map fst allRules -- ++ map fst meta_rules
+                    json_res = Aeson.toJSON $ map construct_kv results
+                    construct_kv :: ModResult -> Aeson.Value
+                    construct_kv (MR lc res) =
                         Aeson.toJSON $
                             Map.fromList
                                 [ ("filename", Aeson.toJSON fn)
                                 , ("locations", Aeson.toJSON $ map c res)
                                 ]
                       where
-                        c ((loc, info), vals) =
+                        fn = loc_groups IM.! lc
+                        c ((_, loc, info), vals) =
                             Aeson.toJSON $
                                 Map.fromList
-                                    [ ("location", Aeson.toJSON loc)
+                                    [ ("location", Aeson.toJSON $ showPos loc)
                                     ,
                                         ( "info"
                                         , Aeson.toJSON $
@@ -194,11 +227,16 @@ runRules
                         else Aeson.encodeFile json_out json_res
             else do
                 putStrLn "Rules:"
-                mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
+                mapM_ (putStrLn . \(n, _) -> "  " ++ n) allRules
                 -- mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
                 putStrLn ""
                 putStrLn "Results:"
-                mapM_ (putStrLn . \(fn, rule_results) -> "  " ++ fn ++ ":\n    " ++ show rule_results) results
+                mapM_ (putStrLn . \MR{..} -> "  "
+                          ++ (loc_groups IM.! r_loc_group) ++ ":\n    " ++ show
+                          (map (\((_, l,i),d) -> (showPos l, i, d)) r_result)
+                          ) results
+    where showPos :: (Int, Int, Int, Int) -> String
+          showPos = show . toHpcPos
 
 data JsonResult = JR
     { jr_location :: String
