@@ -1,13 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# OPTIONS_GHC -Wno-missing-fields #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-
 {-# HLINT ignore "Move brackets to avoid $" #-}
 {-# HLINT ignore "Use second" #-}
+{-# HLINT ignore "Use newtype instead of data" #-}
+{-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -Wno-missing-fields #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module Test.Tasty.Ingredients.Spectrum.Rules where
 
@@ -37,8 +38,10 @@ import qualified Data.ByteString.Lazy as BSL
 import GHC
 
 import Control.Monad (when)
-import GHC.Hs.Type
 import GHC.Generics (Generic)
+import GHC.Hs.Type
+
+import Text.ParserCombinators.ReadP as RP
 
 {- | runRules executes all rules and outputs their results to the console.
 After applying all rules, it terminates the program.
@@ -46,6 +49,7 @@ After applying all rules, it terminates the program.
 DevNote: Some of the rules are "computation heavy", so in order to make things work performant
 the rules are scoped per module (when applicable) to have less memory need and less checks to do.
 -}
+allRules :: [(String, Rule)]
 allRules =
     [ ("rTFail", rTFail)
     , ("rTPass", rTPass)
@@ -66,8 +70,8 @@ allRules =
     , ("rOptimalP", rOptimalP)
     , ("rTarantula", rTarantula)
     , ("rOchiai", rOchiai)
-    , ("rDStar 2", rDStar 2)
-    , ("rDStar 3", rDStar 3)
+    , ("rDStar2", rDStar 2)
+    , ("rDStar3", rDStar 3)
     , ("rRogot1", rRogot1)
     , ("rASTLeaf", rASTLeaf)
     , ("rTFailFreqDiffParent", rTFailFreqDiffParent)
@@ -83,37 +87,147 @@ allRules =
     , ("rTypeArrows", rTypeArrows)
     ]
 
+metaRules :: [(String, MetaRule)]
+metaRules =
+    [ ("rTarantulaQuantile", rQuantile "rTarantula")
+    , ("rOchiaiQuantile", rQuantile "rOchiai")
+    , ("rDStar2Quantile", rQuantile "rDStar2")
+    , ("rDStar3Quantile", rQuantile "rDStar3")
+    , ("rNumIdFails", rNumIdFails)
+    , ("rNumTypeFails", rNumTypeFails)
+    , ("rNumSubTypeFails", rNumSubTypeFails)
+    ]
+
+allRuleNames :: [String]
+allRuleNames = map fst allRules ++ map fst metaRules
+
 data ModResult
     = MR
     { r_loc_group :: Int -- The module this result applies to
     , r_result ::
         [ ( ( Int
-            , (Int,Int,Int,Int) -- Position
+            , (Int, Int, Int, Int) -- Position
             , [String] -- "Info (type)"
             )
           , [Double] -- Result for each rule
           )
         ]
     }
-  deriving (Generic, NFData)
+    deriving (Generic, NFData)
 
-filterRule
-   ::  [ModResult] -- cached results
-   ->  [String] -- Rules to apply on
-   ->  ([Double] -> Bool) -- condition
-   ->  Spectrum
-   ->  Spectrum
-filterRule results rule_names cond tr@(test_results, loc_groups, grouped_labels)
-   = if length rule_inds /= length rule_names
-     then error $ "filterRule: rules not found! " <> show rule_names <> ")"
-     else let grouped_labels'= IM.map (filter (\Label{..} -> loc_index `IS.member` locs_that_match)) grouped_labels
-              test_results' = map (\(s,b,inv) -> (s,b, inv `IS.intersection` locs_that_match)) test_results
-          in (test_results', loc_groups, grouped_labels')
-    where simplify MR{..} = map (\((i,_,_), r) -> (i,r)) r_result
-          rule_inds = mapMaybe (`L.elemIndex` map fst allRules) rule_names
-          thoseThatHold = map fst .filter (\(_,r) -> cond (map (r !!) rule_inds))
-          locs_that_match = IS.fromList $ concatMap (thoseThatHold  . simplify) results
+data FilterVar = FVar String -- name of a rule result
+instance Show FilterVar where
+    show (FVar s) = s
+data FilterComp = FComp FilterVar FilterOp Double
 
+instance Show FilterComp where
+    show (FComp fv fop tr) =
+        show fv <> " " <> show fop <> " " <> show tr
+
+data FilterOp = FGeq | FLeq | FLt | FGt | FEq
+
+instance Show FilterOp where
+    show FGeq = ">="
+    show FLeq = "<="
+    show FGt = ">"
+    show FLt = "<"
+    show FEq = "<"
+
+data FilterExpr
+    = FAnd FilterExpr FilterExpr
+    | FOr FilterExpr FilterExpr
+    | FNot FilterExpr
+    | FEComp FilterComp
+
+instance Show FilterExpr where
+    show (FAnd e1 e2) =
+        "(" <> show e1 <> ") && (" <> show e2 <> ")"
+    show (FOr e1 e2) =
+        "(" <> show e1 <> ") || (" <> show e2 <> ")"
+    show (FNot e1) =
+        "not (" <> show e1 <> ")"
+    show (FEComp e1) =
+        show e1
+
+parseFilterExpr :: RP.ReadP FilterExpr
+parseFilterExpr = RP.choice [pand, por, pc]
+  where
+    pand = do
+        RP.char '('
+        e1 <- parseFilterExpr
+        RP.string ") && ("
+        e2 <- parseFilterExpr
+        char ')'
+        return (FAnd e1 e2)
+    por = do
+        RP.char '('
+        e1 <- parseFilterExpr
+        RP.string ") || ("
+        e2 <- parseFilterExpr
+        RP.char ')'
+        return (FOr e1 e2)
+    pnot = do
+        RP.string "not ("
+        e1 <- parseFilterExpr
+        RP.char ')'
+        return (FNot e1)
+    pc = do
+        rule <- RP.choice (map RP.string allRuleNames)
+        RP.char ' '
+        op <- pop
+        char ' '
+        tr <- RP.readS_to_P reads
+        return (FEComp (FComp (FVar rule) op tr))
+    pop =
+        RP.choice
+            [ string ">=" >> return FGeq
+            , string "<=" >> return FLeq
+            , string ">" >> return FGt
+            , string "<" >> return FLt
+            , string "==" >> return FEq
+            ]
+
+compileFilterExpr :: FilterExpr -> [ModResult] -> Spectrum -> Spectrum
+compileFilterExpr fexpr =
+    let f = compileFilterExpr' fexpr
+     in filterRule f
+  where
+    compileFilterExpr' :: FilterExpr -> (Map String Double -> Bool)
+    compileFilterExpr' (FAnd e1 e2) =
+        let f1 = compileFilterExpr' e1
+            f2 = compileFilterExpr' e2
+         in (\rv -> f1 rv && f2 rv)
+    compileFilterExpr' (FOr e1 e2) =
+        let f1 = compileFilterExpr' e1
+            f2 = compileFilterExpr' e2
+         in (\rv -> f1 rv || f2 rv)
+    compileFilterExpr' (FNot e1) =
+        let f1 = compileFilterExpr' e1
+         in not . f1
+    compileFilterExpr' (FEComp (FComp (FVar rule) fop tr)) =
+        \rv ->
+            let v = rv Map.! rule
+             in case fop of
+                    FGeq -> v >= tr
+                    FLeq -> v <= tr
+                    FGt -> v > tr
+                    FLt -> v < tr
+                    FEq -> v == tr
+
+filterRule ::
+    (Map String Double -> Bool) -> -- condition, can reference variables
+    [ModResult] -> -- cached results
+    Spectrum ->
+    Spectrum
+filterRule cond results tr@(test_results, loc_groups, grouped_labels) =
+    let grouped_labels' = IM.map (filter (\Label{..} -> loc_index `IS.member` locs_that_match)) grouped_labels
+        test_results' = map (\(s, b, inv) -> (s, b, inv `IS.intersection` locs_that_match)) test_results
+     in (test_results', loc_groups, grouped_labels')
+  where
+    simplify MR{..} = map (\((i, _, _), r) -> (i, r)) r_result
+    all_rule_names = Map.fromList $ zip allRuleNames [0 :: Int ..]
+    thoseThatHold = map fst . filter (\(_, r) -> cond (Map.map (r !!) all_rule_names))
+    locs_that_match = IS.fromList $ concatMap (thoseThatHold . simplify) results
 
 applyRules :: Bool -> Spectrum -> (IntMap [Label], [ModResult])
 applyRules validate_types tr@(test_results, loc_groups, grouped_labels) =
@@ -131,15 +245,6 @@ applyRules validate_types tr@(test_results, loc_groups, grouped_labels) =
                 }
         r _ _ = map (\Label{..} -> IM.size loc_evals)
 
-        -- meta_rules =
-        --     [ ("rTarantulaQuantile", rQuantile "rTarantula")
-        --     , ("rOchiaiQuantile", rQuantile "rOchiai")
-        --     , ("rDStar2Quantile", rQuantile "rDStar 2")
-        --     , ("rDStar3Quantile", rQuantile "rDStar 3")
-        --     , ("rNumIdFails", rNumIdFails)
-        --     , ("rNumTypeFails", rNumTypeFails)
-        --     , ("rNumSubTypeFails", rNumSubTypeFails)
-        --     ]
         -- [2023-12-31]
         -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
         -- stream* the labels into the rules, as far as is allowed,
@@ -170,7 +275,18 @@ applyRules validate_types tr@(test_results, loc_groups, grouped_labels) =
 
         pmap :: (NFData b) => (a -> b) -> [a] -> [b]
         pmap f = withStrategy (parList rdeepseq) . map f
-     in (grouped_labels, results)
+
+        rule_names = Map.fromList $ zip (map fst allRules ++ map fst metaRules) [0 ..]
+
+        -- Inject meta results
+        meta_results =
+            L.foldl'
+                ( \res (_, meta_rule) ->
+                    meta_rule rule_names env res
+                )
+                results
+                metaRules
+     in (grouped_labels, meta_results)
 
 runRules :: (Bool, Bool, FilePath) -> Spectrum -> IO ()
 runRules
@@ -231,12 +347,18 @@ runRules
                 -- mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
                 putStrLn ""
                 putStrLn "Results:"
-                mapM_ (putStrLn . \MR{..} -> "  "
-                          ++ (loc_groups IM.! r_loc_group) ++ ":\n    " ++ show
-                          (map (\((_, l,i),d) -> (showPos l, i, d)) r_result)
-                          ) results
-    where showPos :: (Int, Int, Int, Int) -> String
-          showPos = show . toHpcPos
+                mapM_
+                    ( putStrLn . \MR{..} ->
+                        "  "
+                            ++ (loc_groups IM.! r_loc_group)
+                            ++ ":\n    "
+                            ++ show
+                                (map (\((_, l, i), d) -> (showPos l, i, d)) r_result)
+                    )
+                    results
+      where
+        showPos :: (Int, Int, Int, Int) -> String
+        showPos = show . toHpcPos
 
 data JsonResult = JR
     { jr_location :: String
@@ -301,8 +423,11 @@ type Rule =
 type MetaRule =
     Map String Int ->
     Environment ->
-    [(FilePath, [((String, [String]), [Double])])] ->
-    [(FilePath, [((String, [String]), [Double])])]
+    [ModResult] ->
+    [ModResult]
+
+-- [(FilePath, [((String, [String]), [Double])])] ->
+-- [(FilePath, [((String, [String]), [Double])])]
 
 -- | Number of failing tests this label is involved in
 rTFail :: Rule
@@ -750,7 +875,7 @@ rNumTypeFails = rNumInfoRule "rTFail" selTy (-1) (+)
 
 rNumSubTypeFails :: MetaRule
 rNumSubTypeFails rule_locs Env{..} locs =
-    map (\(fn, res) -> (fn, map upd res)) locs
+    map (\(MR g res) -> MR g (map upd res)) locs
   where
     key = "rTFail"
     key_loc = rule_locs Map.! key
@@ -758,9 +883,9 @@ rNumSubTypeFails rule_locs Env{..} locs =
     failing_tys =
         Set.unions $
             concatMap
-                ( mapMaybe (get_ty . snd . fst)
+                ( mapMaybe (get_ty . (\(_, _, inf) -> inf) . fst)
                     . filter isFailing
-                    . snd
+                    . r_result
                 )
                 locs
     isFailing (_, vals) = vals L.!! key_loc > 0
@@ -775,9 +900,9 @@ rNumSubTypeFails rule_locs Env{..} locs =
     flatTy = universeOf uniplate
 
     upd ::
-        ((String, [String]), [Double]) ->
-        ((String, [String]), [Double])
-    upd ((l, inf), vals) = ((l, inf), vals ++ [fromIntegral nv])
+        ((Int, (Int, Int, Int, Int), [String]), [Double]) ->
+        ((Int, (Int, Int, Int, Int), [String]), [Double])
+    upd ((l, p, inf), vals) = ((l, p, inf), vals ++ [fromIntegral nv])
       where
         nv
             | (ty_str : _) <- inf
@@ -793,7 +918,7 @@ rNumInfoRule ::
     (Double -> Double -> Double) ->
     MetaRule
 rNumInfoRule key sel no_val merge rule_locs _ results =
-    map (\(fn, res) -> (fn, map upd res)) results
+    map (\(MR g res) -> MR g (map upd res)) results
   where
     key_loc = rule_locs Map.! key
     all_res =
@@ -801,17 +926,17 @@ rNumInfoRule key sel no_val merge rule_locs _ results =
             map
                 ( Map.fromListWith merge
                     . mapMaybe f
-                    . snd
+                    . r_result
                 )
                 results
-    f :: ((String, [String]), [Double]) -> Maybe (String, Double)
-    f ((_, info), vals) = case sel info of
+    f :: ((Int, (Int, Int, Int, Int), [String]), [Double]) -> Maybe (String, Double)
+    f ((_, _, info), vals) = case sel info of
         Just s -> Just (s, vals L.!! key_loc)
         _ -> Nothing
     upd ::
-        ((String, [String]), [Double]) ->
-        ((String, [String]), [Double])
-    upd ((l, inf), vals) = ((l, inf), vals ++ [nv])
+        ((Int, (Int, Int, Int, Int), [String]), [Double]) ->
+        ((Int, (Int, Int, Int, Int), [String]), [Double])
+    upd ((l, p, inf), vals) = ((l, p, inf), vals ++ [nv])
       where
         nv
             | Just x <- sel inf
@@ -826,7 +951,7 @@ rQuantile rule_name r_inds _ r = annotate 0 r
   where
     t_ind = r_inds Map.! rule_name
     ws :: [Double]
-    ws = r >>= (map ((L.!! t_ind) . snd) . snd)
+    ws = r >>= (map ((L.!! t_ind) . snd) . r_result)
 
     ind_ws :: [IntSet]
     ind_ws =
@@ -843,10 +968,12 @@ rQuantile rule_name r_inds _ r = annotate 0 r
         Just g_i = L.findIndex (w_i `IS.member`) ind_ws
     annotate ::
         Int ->
-        [(FilePath, [(a, [Double])])] ->
-        [(FilePath, [(a, [Double])])]
+        [ModResult] ->
+        [ModResult]
+    -- (FilePath, [(a, [Double])])] ->
+    -- [(FilePath, [(a, [Double])])]
     annotate _ [] = []
-    annotate !n ((fp, m) : ms) = (fp, m') : annotate n' ms
+    annotate !n (MR g m : ms) = MR g m' : annotate n' ms
       where
         (!n', !m') = annotate' n m
         annotate' ::
