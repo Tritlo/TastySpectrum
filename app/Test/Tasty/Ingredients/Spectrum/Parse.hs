@@ -1,6 +1,8 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
+
 module Test.Tasty.Ingredients.Spectrum.Parse where
+
 import GHC
 #if __GLASGOW_HASKELL__ >= 900
 import GHC.Plugins (mainUnitId)

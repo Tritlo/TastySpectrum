@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fplugin Test.Tasty.Ingredients.Spectrum.Plugin -fhpc #-}
+
 module Main where
 
 f :: Int -> Int

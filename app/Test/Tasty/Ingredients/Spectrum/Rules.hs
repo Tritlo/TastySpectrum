@@ -1,12 +1,15 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE CPP #-}
 
 module Test.Tasty.Ingredients.Spectrum.Rules where
 
+import Control.Lens (universeOf)
 import Control.Parallel.Strategies
+import Data.Data
+import Data.Data.Lens (uniplate)
 import Data.Function (on)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap.Strict as IM
@@ -21,303 +24,323 @@ import qualified Data.Set as Set
 import Data.Tree
 import Data.Tree (drawForest)
 import Test.Tasty.Ingredients.Spectrum.GenForest
-import Test.Tasty.Ingredients.Spectrum.Types
 import Test.Tasty.Ingredients.Spectrum.Parse
-import Data.Data
-import Control.Lens (universeOf)
-import Data.Data.Lens (uniplate)
+import Test.Tasty.Ingredients.Spectrum.Types
 
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Lazy as BSL
 
 import GHC
-#if __GLASGOW_HASKELL__ >= 900
+
+import Control.Monad (when)
 import GHC.Hs.Type
-#elif __GLASGOW_HASKELL__ >= 810
-import GHC.Hs.Types
-#else
-import HsTypes
-#endif
 
+{- | runRules executes all rules and outputs their results to the console.
+After applying all rules, it terminates the program.
 
--- | runRules executes all rules and outputs their results to the console.
--- After applying all rules, it terminates the program.
---
--- DevNote: Some of the rules are "computation heavy", so in order to make things work performant
--- the rules are scoped per module (when applicable) to have less memory need and less checks to do.
-runRules :: (Bool, Bool, FilePath) -> TestResults -> IO ()
-runRules (validate_types, use_json, json_out)
-     tr@(test_results, loc_groups, grouped_labels) = do
-  let total_tests = length test_results
-      total_succesful_tests = length $ filter (\(_, b, _) -> b) test_results
-      total_failing_tests = total_tests - total_succesful_tests
-      showPos :: (Int, Int, Int, Int) -> String
-      showPos = show . toHpcPos
-      showInfo :: [String] -> String
-      showInfo = show
-      env =
-        Env
-          { total_tests = total_tests,
-            total_succesful_tests = total_succesful_tests,
-            loc_groups = loc_groups,
-            validate_types = validate_types
-          }
-      r _ _ = map (\Label {..} -> IM.size loc_evals)
-      rules =
-        [ ("rTFail", rTFail),
-          ("rTPass", rTPass),
-          ("rPropFail", rPropertiesFail),
-          ("rPropPass", rPropertiesPass),
-          ("rUnitFail", rUnitTestFail),
-          ("rUnitPass", rUnitTestPass),
-          ("rGoldenFail", rGoldenFail),
-          ("rGoldenPass", rGoldenPass),
-          ("rOtherTestFail", rOtherTestsFail),
-          ("rOtherTestPass", rOtherTestsPass),
-          ("rTFailFreq", rTFailFreq),
-          ("rTPassFreq", rTPassFreq),
-          ("rTFailUniqueBranch", rTFailUniqueBranch),
-          ("rJaccard", rJaccard),
-          ("rHamming", rHamming),
-          ("rOptimal", rOptimal),
-          ("rOptimalP", rOptimalP),
-          ("rTarantula", rTarantula),
-          ("rOchiai", rOchiai),
-          ("rDStar 2", rDStar 2),
-          ("rDStar 3", rDStar 3),
-          ("rRogot1", rRogot1),
-          ("rASTLeaf", rASTLeaf),
-          ("rTFailFreqDiffParent", rTFailFreqDiffParent),
-          ("rDistToFailure", rDistToFailure),
-          ("rIsIdentifier",rIsIdentifier),
-          ("rTypeLength", rTypeLength),
-          ("rTypeArity",rTypeArity),
-          ("rTypeOrder",rTypeOrder),
-          ("rTypeFunArgs",rTypeFunArgs),
-          ("rTypeConstraints",rTypeConstraints),
-          ("rTypePrimitives",rTypePrimitives),
-          ("rTypeSubTypes", rTypeSubTypes),
-          ("rTypeArrows",rTypeArrows)
-        ]
+DevNote: Some of the rules are "computation heavy", so in order to make things work performant
+the rules are scoped per module (when applicable) to have less memory need and less checks to do.
+-}
+runRules :: (Bool, Bool, FilePath) -> Spectrum -> IO ()
+runRules
+    (validate_types, use_json, json_out)
+    tr@(test_results, loc_groups, grouped_labels) = do
+        let total_tests = length test_results
+            total_succesful_tests = length $ filter (\(_, b, _) -> b) test_results
+            total_failing_tests = total_tests - total_succesful_tests
+            showPos :: (Int, Int, Int, Int) -> String
+            showPos = show . toHpcPos
+            showInfo :: [String] -> String
+            showInfo = show
+            env =
+                Env
+                    { total_tests = total_tests
+                    , total_succesful_tests = total_succesful_tests
+                    , loc_groups = loc_groups
+                    , validate_types = validate_types
+                    }
+            r _ _ = map (\Label{..} -> IM.size loc_evals)
+            rules =
+                [ ("rTFail", rTFail)
+                , ("rTPass", rTPass)
+                , ("rPropFail", rPropertiesFail)
+                , ("rPropPass", rPropertiesPass)
+                , ("rUnitFail", rUnitTestFail)
+                , ("rUnitPass", \env rel_tests -> countTestTypes filterForUnitTests True env rel_tests)
+                , ("rGoldenFail", rGoldenFail)
+                , ("rGoldenPass", rGoldenPass)
+                , ("rOtherTestFail", rOtherTestsFail)
+                , ("rOtherTestPass", rOtherTestsPass)
+                , ("rTFailFreq", rTFailFreq)
+                , ("rTPassFreq", rTPassFreq)
+                , ("rTFailUniqueBranch", rTFailUniqueBranch)
+                , ("rJaccard", rJaccard)
+                , ("rHamming", rHamming)
+                , ("rOptimal", rOptimal)
+                , ("rOptimalP", rOptimalP)
+                , ("rTarantula", rTarantula)
+                , ("rOchiai", rOchiai)
+                , ("rDStar 2", rDStar 2)
+                , ("rDStar 3", rDStar 3)
+                , ("rRogot1", rRogot1)
+                , ("rASTLeaf", rASTLeaf)
+                , ("rTFailFreqDiffParent", rTFailFreqDiffParent)
+                , ("rDistToFailure", rDistToFailure)
+                , ("rIsIdentifier", rIsIdentifier)
+                , ("rTypeLength", rTypeLength)
+                , ("rTypeArity", rTypeArity)
+                , ("rTypeOrder", rTypeOrder)
+                , ("rTypeFunArgs", rTypeFunArgs)
+                , ("rTypeConstraints", rTypeConstraints)
+                , ("rTypePrimitives", rTypePrimitives)
+                , ("rTypeSubTypes", rTypeSubTypes)
+                , ("rTypeArrows", rTypeArrows)
+                ]
 
-      meta_rules =
-        [ ("rTarantulaQuantile", rQuantile "rTarantula"),
-          ("rOchiaiQuantile", rQuantile "rOchiai"),
-          ("rDStar2Quantile", rQuantile "rDStar 2"),
-          ("rDStar3Quantile", rQuantile "rDStar 3"),
-          ("rNumIdFails", rNumIdFails),
-          ("rNumTypeFails", rNumTypeFails),
-          ("rNumSubTypeFails", rNumSubTypeFails)
-        ]
-      -- [2023-12-31]
-      -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
-      -- stream* the labels into the rules, as far as is allowed,
-      -- though we (sadly) need to parse the whole file first due to
-      -- how it is laid out.
-      results =
-        pmap
-          ( \ls_mod@(Label {loc_group = lc} : _) ->
-              ( loc_groups IM.! lc,
-                zip (map (\Label{..} -> (showPos loc_pos,
-                                         loc_info)) ls_mod) $
-                  L.transpose $
-                    map
-                      ( \(_, rule) ->
-                          rule env (relevantTests test_results ls_mod) ls_mod
-                      )
-                      rules
-              )
-          )
-          grouped_labels
+            meta_rules =
+                [ ("rTarantulaQuantile", rQuantile "rTarantula")
+                , ("rOchiaiQuantile", rQuantile "rOchiai")
+                , ("rDStar2Quantile", rQuantile "rDStar 2")
+                , ("rDStar3Quantile", rQuantile "rDStar 3")
+                , ("rNumIdFails", rNumIdFails)
+                , ("rNumTypeFails", rNumTypeFails)
+                , ("rNumSubTypeFails", rNumSubTypeFails)
+                ]
+            -- [2023-12-31]
+            -- We run the rules per group (= haskell-module) and then per_rule. This allows us to
+            -- stream* the labels into the rules, as far as is allowed,
+            -- though we (sadly) need to parse the whole file first due to
+            -- how it is laid out.
+            results =
+                pmap
+                    ( \ls_mod@(Label{loc_group = lc} : _) ->
+                        ( loc_groups IM.! lc
+                        , zip
+                            ( map
+                                ( \Label{..} ->
+                                    ( showPos loc_pos
+                                    , loc_info
+                                    )
+                                )
+                                ls_mod
+                            )
+                            $ L.transpose
+                            $ map
+                                ( \(_, rule) ->
+                                    rule env (relevantTests test_results ls_mod) ls_mod
+                                )
+                                rules
+                        )
+                    )
+                    $ IM.elems grouped_labels
 
-      pmap :: NFData b => (a -> b) -> [a] -> [b]
-      pmap f = withStrategy (parList rdeepseq) . map f
+            pmap :: (NFData b) => (a -> b) -> [a] -> [b]
+            pmap f = withStrategy (parList rdeepseq) . map f
 
+            rule_names = Map.fromList $ zip (map fst rules ++ map fst meta_rules) [0 ..]
+            meta_results =
+                L.foldl'
+                    (\res (_, meta_rule) -> meta_rule rule_names env res)
+                    results
+                    meta_rules
 
-      rule_names = Map.fromList $ zip (map fst rules ++ map fst meta_rules) [0 ..]
-      meta_results =
-        L.foldl'
-          ( \res (_, meta_rule) ->
-              (meta_rule rule_names env) res
-          )
-          results
-          meta_rules
+        let all_invalid = concatMap invalidTypes grouped_labels
+        when (validate_types && not (null all_invalid)) $
+            do
+                mapM_ (putStrLn . \(t, m) -> "`" ++ t ++ "`:" ++ m) all_invalid
+                error "Invalid types found, see above ^"
+        if use_json
+            then do
+                let rks = map fst rules ++ map fst meta_rules
+                    json_res = Aeson.toJSON $ map (uncurry construct_kv) meta_results
+                    construct_kv :: FilePath -> [((String, [String]), [Double])] -> Aeson.Value
+                    construct_kv fn res =
+                        Aeson.toJSON $
+                            Map.fromList
+                                [ ("filename", Aeson.toJSON fn)
+                                , ("locations", Aeson.toJSON $ map c res)
+                                ]
+                      where
+                        c ((loc, info), vals) =
+                            Aeson.toJSON $
+                                Map.fromList
+                                    [ ("location", Aeson.toJSON loc)
+                                    ,
+                                        ( "info"
+                                        , Aeson.toJSON $
+                                            Map.fromList
+                                                [ ("type", ty)
+                                                , ("identifier", ident)
+                                                ]
+                                        )
+                                    ,
+                                        ( "results"
+                                        , Aeson.toJSON $
+                                            Map.fromList $
+                                                zip rks vals
+                                        )
+                                    ]
+                          where
+                            ty
+                                | (x : _) <- info = Just x
+                                | otherwise = Nothing
+                            ident
+                                | [_, i] <- info = Just i
+                                | otherwise = Nothing
+                 in if null json_out
+                        then BSL.putStr $ Aeson.encode json_res
+                        else Aeson.encodeFile json_out json_res
+            else do
+                putStrLn "Rules:"
+                mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
+                mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
+                putStrLn ""
+                putStrLn "Results:"
+                mapM_ (putStrLn . \(fn, rule_results) -> "  " ++ fn ++ ":\n    " ++ show rule_results) meta_results
 
-  let all_invalid = concatMap invalidTypes grouped_labels
-  if validate_types && not (null all_invalid)
-  then do mapM_ (putStrLn . \(t,m) -> "`" ++ t ++ "`:" ++ m) all_invalid
-          error "Invalid types found, see above ^"
-  else return ()
-  if use_json then do
-      let rks = map fst rules ++ map fst meta_rules
-          json_res = Aeson.toJSON $ map (uncurry construct_kv) meta_results
-          construct_kv :: FilePath -> [((String,[String]), [Double])] -> Aeson.Value
-          construct_kv fn res =
-              Aeson.toJSON $ Map.fromList [("filename", Aeson.toJSON fn),
-                                          ("locations", Aeson.toJSON $ map c res)]
-            where c ((loc,info),vals) = Aeson.toJSON $
-                      Map.fromList  [("location", Aeson.toJSON loc),
-                                    ("info", Aeson.toJSON $
-                                                Map.fromList [("type",ty),
-                                                              ("identifier",ident)]),
-                                    ("results", Aeson.toJSON $
-                                                  Map.fromList $ zip rks vals)]
-                      where ty | (x:_) <- info = Just x
-                              | otherwise = Nothing
-                            ident | [_,i] <- info = Just i
-                                  | otherwise = Nothing
-        in  if null json_out
-            then BSL.putStr $ Aeson.encode json_res
-            else Aeson.encodeFile json_out json_res
-  else do
-    putStrLn "Rules:"
-    mapM_ (putStrLn . \(n, _) -> "  " ++ n) rules
-    mapM_ (putStrLn . \(n, _) -> "  " ++ n) meta_rules
-    putStrLn ""
-    putStrLn "Results:"
-    mapM_
-        ( putStrLn . \(fn, rule_results) ->
-            ( "  " ++ fn ++ ":\n    "
-                ++ show rule_results
-            )
-        )
-        meta_results
+data JsonResult = JR
+    { jr_location :: String
+    , jr_lnfo :: Map String (Maybe String)
+    , jr_lesults :: Map String Double
+    }
 
-data JsonResult = JR {jr_location :: String,
-                      jr_lnfo :: Map String (Maybe String),
-                      jr_lesults :: Map String Double}
--- | Returns an IntMap of all tests touched by a list of statements.
--- "Touched" means executed in a failing *or* passing test.
+{- | Returns an IntMap of all tests touched by a list of statements.
+"Touched" means executed in a failing *or* passing test.
+-}
 relevantTests ::
-  -- | A list of all the tests and the labels they touch
-  [((String, String), Bool, IntSet)] ->
-  -- | All labels (=expression) for which the touched tests are to be determined
-  [Label] ->
-  -- | The tests which are touched by any of the labels. The index is reflects the position in the original list of tests.
-  IntMap ((String, String), Bool, IntSet)
+    -- | A list of all the tests and the labels they touch
+    [((String, String), Bool, IntSet)] ->
+    -- | All labels (=expression) for which the touched tests are to be determined
+    [Label] ->
+    -- | The tests which are touched by any of the labels. The index is reflects the position in the original list of tests.
+    IntMap ((String, String), Bool, IntSet)
 relevantTests all_tests labels =
-  IM.fromAscList $
-    filter (is_rel . snd) $
-      zip [0 ..] all_tests
+    IM.fromAscList $
+        filter (is_rel . snd) $
+            zip [0 ..] all_tests
   where
     lset = IS.fromAscList $ map loc_index labels
     -- checks for a given Test if a Label is in the executed list (done via Labels' unique loc_index)
     is_rel (_, _, is) = not (IS.disjoint lset is)
 
 -- | Filters an an IntMap of all Properties touched by a list of statements.
-filterForProperties::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
-filterForProperties = IM.filter (\((_,t), _, _) -> t == "QC")
+filterForProperties :: IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
+filterForProperties = IM.filter (\((_, t), _, _) -> t == "QC")
 
 -- | Filters an an IntMap of all UnitTests touched by a list of statements.
-filterForUnitTests::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
-filterForUnitTests = IM.filter (\((_,t), _, _) -> t == "TestCase")
+filterForUnitTests :: IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
+filterForUnitTests = IM.filter (\((_, t), _, _) -> t == "TestCase")
 
 -- | Filters an an IntMap of all Golden Tests touched by a list of statements.
-filterForGoldenTests::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
-filterForGoldenTests = IM.filter (\((_,t), _, _) -> t == "Golden")
+filterForGoldenTests :: IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
+filterForGoldenTests = IM.filter (\((_, t), _, _) -> t == "Golden")
 
 -- | Filters an IntMap of all Other (not Unit,Property,Golden) Tests touched by a list of statements.
-filterForOtherTests::  IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
-filterForOtherTests = IM.filter (\((_,t), _, _) -> (t /= "Golden") && (t /= "TestCase") && (t /= "QC"))
+filterForOtherTests :: IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)
+filterForOtherTests = IM.filter (\((_, t), _, _) -> (t /= "Golden") && (t /= "TestCase") && (t /= "QC"))
 
-
--- | An `Environment` holds a set of (global) values and can be pre-calculated.
--- This eases computing some of the rules, mostly the traditional FL formulas (Ochiai, Tarantula, etc.)
+{- | An `Environment` holds a set of (global) values and can be pre-calculated.
+This eases computing some of the rules, mostly the traditional FL formulas (Ochiai, Tarantula, etc.)
+-}
 data Environment = Env
-  { total_tests :: Int,
-    total_succesful_tests :: Int,
-    loc_groups :: IntMap String,
-    validate_types :: Bool
-  }
+    { total_tests :: Int
+    , total_succesful_tests :: Int
+    , loc_groups :: IntMap String
+    , validate_types :: Bool
+    }
 
 emptyEnv :: Environment
 emptyEnv = Env 0 0 IM.empty False
 
 type Rule =
-  Environment ->
-  IntMap ((String, String), Bool, IntSet) ->
-  [Label] ->
-  [Double]
+    Environment ->
+    IntMap ((String, String), Bool, IntSet) ->
+    [Label] ->
+    [Double]
 
 type MetaRule =
-  Map String Int ->
-  Environment ->
-  [(FilePath, [((String,[String]), [Double])])] ->
-  [(FilePath, [((String,[String]), [Double])])]
+    Map String Int ->
+    Environment ->
+    [(FilePath, [((String, [String]), [Double])])] ->
+    [(FilePath, [((String, [String]), [Double])])]
 
 -- | Number of failing tests this label is involved in
 rTFail :: Rule
 rTFail _ _ = map rTFail'
   where
-    rTFail' Label {..} = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
+    rTFail' Label{..} = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
 
 -- Number of passing tests this label is involved in
 rTPass :: Rule
 rTPass _ _ = map rTPass'
   where
-    rTPass' Label {..} = fromIntegral $ length (filter (> 0) $ IM.elems loc_evals)
+    rTPass' Label{..} = fromIntegral $ length (filter (> 0) $ IM.elems loc_evals)
 
 -- | Counts passing properties per label
 rPropertiesPass :: Rule
-rPropertiesPass env rel_tests = countTestTypes filterForProperties True env rel_tests
+rPropertiesPass = countTestTypes filterForProperties True
 
 -- | Counts failing properties per label
 rPropertiesFail :: Rule
-rPropertiesFail env rel_tests = countTestTypes filterForProperties False env rel_tests
+rPropertiesFail = countTestTypes filterForProperties False
 
 -- | Counts passing Unit Tests per label
 rUnitTestPass :: Rule
-rUnitTestPass env rel_tests = countTestTypes filterForUnitTests True env rel_tests
+rUnitTestPass = countTestTypes filterForUnitTests True
 
 -- | Counts failing Unit Tests per label
 rUnitTestFail :: Rule
-rUnitTestFail env rel_tests = countTestTypes filterForUnitTests False env rel_tests
+rUnitTestFail = countTestTypes filterForUnitTests False
 
 -- | Counts passing Golden Tests per label
 rGoldenPass :: Rule
-rGoldenPass env rel_tests = countTestTypes filterForGoldenTests True env rel_tests
+rGoldenPass = countTestTypes filterForGoldenTests True
 
 -- | Counts failing Golden Tests per label
 rGoldenFail :: Rule
-rGoldenFail env rel_tests = countTestTypes filterForGoldenTests False env rel_tests
+rGoldenFail = countTestTypes filterForGoldenTests False
 
 -- | Counts passing Other Tests per label
 rOtherTestsPass :: Rule
-rOtherTestsPass env rel_tests = countTestTypes filterForOtherTests True env rel_tests
+rOtherTestsPass = countTestTypes filterForOtherTests True
 
 -- | Counts failing Other Tests per label
 rOtherTestsFail :: Rule
-rOtherTestsFail env rel_tests = countTestTypes filterForOtherTests False env rel_tests
+rOtherTestsFail = countTestTypes filterForOtherTests False
 
-
--- | Prototype-Function that looks over the labels and TestResults
--- to count how often the labels are in a Sub-Set of the original TestResults.
-countTestTypes :: (IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)) -- ^ A filter for which tests to use, e.g. only properties
-                -> Bool                                                                                -- ^ Whether or not we want to count failures or passes (TRUE = Pass)
-                -> Rule                                                                                -- ^ A finished Rule, ready to use.
+{- | Prototype-Function that looks over the labels and Spectrum
+to count how often the labels are in a Sub-Set of the original Spectrum.
+-}
+countTestTypes ::
+    -- | A filter for which tests to use, e.g. only properties
+    (IntMap ((String, String), Bool, IntSet) -> IntMap ((String, String), Bool, IntSet)) ->
+    -- | Whether or not we want to count failures or passes (TRUE = Pass)
+    Bool ->
+    -- | A finished Rule, ready to use.
+    Rule
 countTestTypes filterFunction testStatus _ rel_tests = map countOccurrences
   where
     relevantTests :: IntMap ((String, String), Bool, IntSet)
-    relevantTests = IM.filter (\((_,_),b,_) -> b == testStatus) (filterFunction rel_tests)
+    relevantTests = IM.filter (\((_, _), b, _) -> b == testStatus) (filterFunction rel_tests)
     touched_labels :: [IntSet]
-    touched_labels = [touched | ((_,_),_,touched) <- (IM.elems relevantTests)]
+    touched_labels = [touched | ((_, _), _, touched) <- IM.elems relevantTests]
     countOccurrences :: Label -> Double
-    countOccurrences Label {..} =  fromIntegral $ countLocations loc_index touched_labels
-      where countLocations :: Int -> [IntSet] -> Int
-            countLocations index labels = length (filter (\s -> IS.member index s) labels)
-
+    countOccurrences Label{..} = fromIntegral $ countLocations loc_index touched_labels
+      where
+        countLocations :: Int -> [IntSet] -> Int
+        countLocations index labels = length (filter (IS.member index) labels)
 
 -- Number of executions in failing tests
 rTFailFreq :: Rule
 rTFailFreq _ _ = map rTFailFreq'
   where
-    rTFailFreq' Label {..} = fromIntegral $ sum (filter (< 0) $ IM.elems loc_evals)
+    rTFailFreq' Label{..} = fromIntegral $ sum (filter (< 0) $ IM.elems loc_evals)
 
 -- Number of executions in passing tests
 rTPassFreq :: Rule
 rTPassFreq _ _ = map rTPassFreq'
   where
-    rTPassFreq' Label {..} = fromIntegral $ sum (filter (> 0) $ IM.elems loc_evals)
+    rTPassFreq' Label{..} = fromIntegral $ sum (filter (> 0) $ IM.elems loc_evals)
 
 --  [2024-01-01] If the test executes a statement that has a "neighbour"
 --  (= same parent) in the AST, but the neighbour is not executed, we can
@@ -325,36 +348,36 @@ rTPassFreq _ _ = map rTPassFreq'
 rTFailUniqueBranch :: Rule
 rTFailUniqueBranch _ rel_tests mod_labels = map score mod_labels
   where
-    ( label_map,
-      all_parents_all_children,
-      parents_direct_children
-      ) = genParentsAndChildren mod_labels
-    score Label {..}
-      | [] <- ps = 0
-      | (p : _) <- ps,
-        (_, dc) <- parents_direct_children IM.! p,
-        neighs <- IS.toList $ IS.delete loc_index dc,
-        -- tests where this label is executed but not
-        -- the neighbor
-        unique_tests <-
-          map
-            ( \n ->
-                IM.filter
-                  ( \(_, _, rel_inds) ->
-                      not (n `IS.member` rel_inds)
-                  )
-                  in_tests
-            )
-            neighs =
-          fromIntegral $ length unique_tests
+    ( label_map
+        , all_parents_all_children
+        , parents_direct_children
+        ) = genParentsAndChildren mod_labels
+    score Label{..}
+        | [] <- ps = 0
+        | (p : _) <- ps
+        , (_, dc) <- parents_direct_children IM.! p
+        , neighs <- IS.toList $ IS.delete loc_index dc
+        , -- tests where this label is executed but not
+          -- the neighbor
+          unique_tests <-
+            map
+                ( \n ->
+                    IM.filter
+                        ( \(_, _, rel_inds) ->
+                            not (n `IS.member` rel_inds)
+                        )
+                        in_tests
+                )
+                neighs =
+            fromIntegral $ length unique_tests
       where
         (ps, _) = parents_direct_children IM.! loc_index
         in_tests =
-          IM.filter
-            ( \(_, _, rel_inds) ->
-                loc_index `IS.member` rel_inds
-            )
-            rel_tests
+            IM.filter
+                ( \(_, _, rel_inds) ->
+                    loc_index `IS.member` rel_inds
+                )
+                rel_tests
 
 -- [2024-01-01] Gives the distance of the label from a leaf
 rASTLeaf :: Rule
@@ -364,179 +387,197 @@ rASTLeaf _ _ = map fromIntegral . leafDistanceList
 --
 -- Do we have an identifier?
 rIsIdentifier :: Rule
-rIsIdentifier _ _ = map (fromIntegral . (\Label{..} -> if length loc_info == 2
-                                                      then 1 else 0))
+rIsIdentifier _ _ =
+    map
+        ( fromIntegral
+            . ( \Label{..} ->
+                    if length loc_info == 2
+                        then 1
+                        else 0
+              )
+        )
 
 -- How long is the type, character-wise?
 rTypeLength :: Rule
 rTypeLength _ _ =
-    map (fromIntegral . (\Label{..} ->
-        case loc_info of
-            (x:_) -> length x
-            _ -> 0))
-
+    map
+        ( fromIntegral
+            . ( \Label{..} ->
+                    case loc_info of
+                        (x : _) -> length x
+                        _ -> 0
+              )
+        )
 
 -- Type analysis
 analyzeType :: (HsType GhcPs -> Double) -> Rule
-analyzeType analysis Env {..} _ = map (\Label{..} ->
-    case loc_info of
-        (x:_) | Right t <- parseInfoType x -> analysis t
-        (x:_) | Left e <- parseInfoType x ->
-          if validate_types
-          then error $ "Error while parsing `" ++ x ++ "`:" ++ e
-          else -1
-        _ -> -1)
+analyzeType analysis Env{..} _ =
+    map
+        ( \Label{..} ->
+            case loc_info of
+                (x : _) | Right t <- parseInfoType x -> analysis t
+                (x : _)
+                    | Left e <- parseInfoType x ->
+                        if validate_types
+                            then error $ "Error while parsing `" ++ x ++ "`:" ++ e
+                            else -1
+                _ -> -1
+        )
 
-invalidTypes :: [Label] -> [(String,String)]
-invalidTypes = mapMaybe (\Label{..} ->
-    case loc_info of
-        (x:_) | Left e <- parseInfoType x -> Just (x,e)
-        _ -> Nothing
-  )
-
+invalidTypes :: [Label] -> [(String, String)]
+invalidTypes =
+    mapMaybe
+        ( \Label{..} ->
+            case loc_info of
+                (x : _) | Left e <- parseInfoType x -> Just (x, e)
+                _ -> Nothing
+        )
 
 -- How many types are there in the type? Int is one, Int -> Int is 3:
 -- Int, (->), and Int
 rTypeSubTypes :: Rule
 rTypeSubTypes = analyzeType (fromIntegral . length . flatTy)
- where flatTy = universeOf uniplate
+  where
+    flatTy = universeOf uniplate
 
 rTypeOrder :: Rule
 rTypeOrder = analyzeType (fromIntegral . length . filter isHsAppTy . flatTy)
- where isHsAppTy d = toConstr d == (toConstr (HsAppTy{} :: HsType GhcPs))
-       flatTy = universeOf uniplate
+  where
+    isHsAppTy d = toConstr d == (toConstr (HsAppTy{} :: HsType GhcPs))
+    flatTy = universeOf uniplate
 
 -- | Number of arguments that are parenthesizedx
 rTypeFunArgs :: Rule
 rTypeFunArgs = analyzeType (fromIntegral . length . filter isHsParTy . flatTy)
- where isHsParTy d = toConstr d == (toConstr (HsParTy{} :: HsType GhcPs))
-       flatTy = universeOf uniplate
+  where
+    isHsParTy d = toConstr d == (toConstr (HsParTy{} :: HsType GhcPs))
+    flatTy = universeOf uniplate
 
 -- | Gets the number of constraints a type has.
 rTypeConstraints :: Rule
 rTypeConstraints = analyzeType (fromIntegral . sum . map ctxtLength . flatTy)
- where isHsAppTy d = toConstr d == (toConstr (HsAppTy{} :: HsType GhcPs))
-       flatTy = universeOf uniplate
-       ctxtLength :: HsType GhcPs -> Int
-#if __GLASGOW_HASKELL__ == 902
-       ctxtLength (HsQualTy {hst_ctxt= Just ctxt}) = length (unLoc ctxt)
-#else
-       ctxtLength (HsQualTy {hst_ctxt=ctxt}) = length (unLoc ctxt)
-#endif
-       ctxtLength _ = 0
+  where
+    isHsAppTy d = toConstr d == (toConstr (HsAppTy{} :: HsType GhcPs))
+    flatTy = universeOf uniplate
+    ctxtLength :: HsType GhcPs -> Int
+
+    ctxtLength (HsQualTy{hst_ctxt = ctxt}) = length (unLoc ctxt)
+    ctxtLength _ = 0
 
 -- How many arrows are there? Note this is not exactly the arity,
 -- since we might have a -> (a -> b) -> c, which has arity 2 but 3 arrows.
 rTypeArrows :: Rule
 rTypeArrows = analyzeType (fromIntegral . length . filter isHsFunTy . flatTy)
- where isHsFunTy d = toConstr d == (toConstr (HsFunTy{} :: HsType GhcPs))
-       flatTy = universeOf uniplate
+  where
+    isHsFunTy d = toConstr d == (toConstr (HsFunTy{} :: HsType GhcPs))
+    flatTy = universeOf uniplate
 
 -- | Gives the function arity for simple types
 rTypeArity :: Rule
 rTypeArity = analyzeType (fromIntegral . firstNonZero . map countArgs . flatTy)
-  where countArgs :: HsType GhcPs -> Int
-#if __GLASGOW_HASKELL__ >= 900
-        countArgs (HsFunTy _ _ _ y)
-#elif __GLASGOW_HASKELL__ == 902
-        countArgs (HsFunTy _ _ y)
-#else
-        countArgs (HsFunTy _ _ y)
-#endif
-           = 1 + (countArgs $ unLoc y)
-        countArgs (HsParTy _ ty) = 1 + (countArgs $ unLoc ty)
-        countArgs _ = 0
-        -- We don't do more complex than that.
-        flatTy = universeOf uniplate
-        firstNonZero [] = 0
-        firstNonZero (x:xs) | x == 0 = firstNonZero xs
-        firstNonZero (x:_) = x
+  where
+    countArgs :: HsType GhcPs -> Int
+
+    countArgs (HsFunTy _ _ _ y) =
+        1 + (countArgs $ unLoc y)
+    countArgs (HsParTy _ ty) = 1 + (countArgs $ unLoc ty)
+    countArgs _ = 0
+    -- We don't do more complex than that.
+    flatTy = universeOf uniplate
+    firstNonZero [] = 0
+    firstNonZero (x : xs) | x == 0 = firstNonZero xs
+    firstNonZero (x : _) = x
 
 -- How many concrete types are there? E.g. Int, String, etc.
 -- So NumTypesInType [Int] will be 2, the [] and the Int,
 -- rTypeArity will be 0 and NumConcreteTypesInType will be 1.
 rTypePrimitives :: Rule
 rTypePrimitives = analyzeType (fromIntegral . length . filter isHsTyVar . flatTy)
- where isHsTyVar d = toConstr d == (toConstr (HsTyVar{} :: HsType GhcPs))
-       flatTy = universeOf uniplate
+  where
+    isHsTyVar d = toConstr d == (toConstr (HsTyVar{} :: HsType GhcPs))
+    flatTy = universeOf uniplate
 
-
--- | The (global) tarantula score of this expression
--- Global refers to "per-spectrum" instead of the "per-module" values of other rules.
+{- | The (global) tarantula score of this expression
+Global refers to "per-spectrum" instead of the "per-module" values of other rules.
+-}
 rTarantula :: Rule
-rTarantula Env {..} _ = map ttula
+rTarantula Env{..} _ = map ttula
   where
     tp = fromIntegral $ total_succesful_tests
     tf = fromIntegral $ total_tests - total_succesful_tests
     ttula :: Label -> Double
-    ttula Label {..} = ftf / (ptp + ftf)
+    ttula Label{..} = ftf / (ptp + ftf)
       where
         f = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
         p = fromIntegral (IM.size loc_evals) - f
         ftf = f / tf
         ptp = p / tp
 
--- | The (global) ochiai score of this expression
--- Global refers to "per-spectrum" instead of the "per-module" values of other rules.
+{- | The (global) ochiai score of this expression
+Global refers to "per-spectrum" instead of the "per-module" values of other rules.
+-}
 rOchiai :: Rule
-rOchiai Env {..} _ = map ochiai
+rOchiai Env{..} _ = map ochiai
   where
     tf = fromIntegral $ total_tests - total_succesful_tests
     ochiai :: Label -> Double
-    ochiai Label {..} = f / sqrt (tf * (p + f))
+    ochiai Label{..} = f / sqrt (tf * (p + f))
       where
         f = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
         p = fromIntegral (IM.size loc_evals) - f
 
--- | The (global) DStar score of this expression, parametrized by k
--- Global refers to "per-spectrum" instead of the "per-module" values of other rules.
+{- | The (global) DStar score of this expression, parametrized by k
+Global refers to "per-spectrum" instead of the "per-module" values of other rules.
+-}
 rDStar :: Int -> Rule
-rDStar k Env {..} _ = map dstar
+rDStar k Env{..} _ = map dstar
   where
     tf = fromIntegral $ total_tests - total_succesful_tests
     dstar :: Label -> Double
-    dstar Label {..} = (f ^^ k) / ((tf - f) + p)
+    dstar Label{..} = (f ^^ k) / ((tf - f) + p)
       where
         f = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
         p = fromIntegral (IM.size loc_evals) - f
 
--- | Jaccard Distance, taken from "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
--- Jaccard Distance might be simple, but is in a different equivalence class as proven by "A Model for Spectra-based Software Diagnosis".
+{- | Jaccard Distance, taken from "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
+Jaccard Distance might be simple, but is in a different equivalence class as proven by "A Model for Spectra-based Software Diagnosis".
+-}
 rJaccard :: Rule
-rJaccard Env {..} _ = map jaccard
+rJaccard Env{..} _ = map jaccard
   where
     tf = fromIntegral $ total_tests - total_succesful_tests
     jaccard :: Label -> Double
-    jaccard Label {..} = f / tf + p
+    jaccard Label{..} = f / tf + p
       where
         f = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
         p = fromIntegral (IM.size loc_evals) - f
 
--- | Hamming Distance, taken from "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
--- Hamming Distance might be simple, but is in a different equivalence class as proven by "A Model for Spectra-based Software Diagnosis".
--- [2024-01-15] Is this a bit redundant if we have the other tests too?
+{- | Hamming Distance, taken from "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
+Hamming Distance might be simple, but is in a different equivalence class as proven by "A Model for Spectra-based Software Diagnosis".
+[2024-01-15] Is this a bit redundant if we have the other tests too?
+-}
 rHamming :: Rule
-rHamming Env {..} _ = map hamming
+rHamming Env{..} _ = map hamming
   where
     tf = total_succesful_tests
     hamming :: Label -> Double
-    hamming Label {..} = fromIntegral (f + total_succesful_tests - p)
+    hamming Label{..} = fromIntegral (f + total_succesful_tests - p)
       where
         f = length (filter (< 0) $ IM.elems loc_evals)
         p = (IM.size loc_evals) - f
 
 -- | "Optimal" SBFL as proposed by "A Model for Spectra-based Software Diagnosis".
 rOptimal :: Rule
-rOptimal Env {..} _ = map optimal
+rOptimal Env{..} _ = map optimal
   where
     tf = fromIntegral $ total_tests - total_succesful_tests
     tp = fromIntegral total_succesful_tests
     optimal :: Label -> Double
-    optimal Label {..}
-      -- If there are non-covered failures, give -1
-      | fn > 0 = -1
-      -- Otherwise, give "number of passing tests that are not covered"
-      | otherwise = pc
+    optimal Label{..}
+        -- If there are non-covered failures, give -1
+        | fn > 0 = -1
+        -- Otherwise, give "number of passing tests that are not covered"
+        | otherwise = pc
       where
         fc = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
         pc = fromIntegral (IM.size loc_evals) - fc
@@ -544,25 +585,26 @@ rOptimal Env {..} _ = map optimal
 
 -- | "OptimalP" SBFL as proposed by "A Model for Spectra-based Software Diagnosis".
 rOptimalP :: Rule
-rOptimalP Env {..} _ = map optimalP
+rOptimalP Env{..} _ = map optimalP
   where
     optimalP :: Label -> Double
     -- "OptimalP" is "number of executed failing tests", minus ("number of passing tests" divided by "number of total tests + 1)
-    optimalP Label {..} = fc - (pc / (fromIntegral total_tests))
+    optimalP Label{..} = fc - (pc / (fromIntegral total_tests))
       where
         fc = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
         pc = fromIntegral (IM.size loc_evals) - fc
 
--- | Rogot1, as per "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
--- Original paper is "A proposed index for measuring agreement in test-retest studies" by Rogot et al.
--- The other Rogot Formulas fall under already existing equivalence classes as per "A Model for Spectra-based Software Diagnosis" and are left out.
+{- | Rogot1, as per "A Framework for Improving Fault Localization Effectiveness Based on Fuzzy Expert System"
+Original paper is "A proposed index for measuring agreement in test-retest studies" by Rogot et al.
+The other Rogot Formulas fall under already existing equivalence classes as per "A Model for Spectra-based Software Diagnosis" and are left out.
+-}
 rRogot1 :: Rule
-rRogot1 Env {..} _ = map rogot1
+rRogot1 Env{..} _ = map rogot1
   where
     tf = fromIntegral $ total_tests - total_succesful_tests
     tp = fromIntegral total_succesful_tests
     rogot1 :: Label -> Double
-    rogot1 Label {..} = 0.5 * (fc / (2 * fc + fn + pc) + (pn / (2 * pn + fn + pc)))
+    rogot1 Label{..} = 0.5 * (fc / (2 * fc + fn + pc) + (pn / (2 * pn + fn + pc)))
       where
         fc = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
         pc = fromIntegral (IM.size loc_evals) - fc
@@ -583,34 +625,37 @@ rTFailFreqDiffParent _ rel_tests labels = map (sum . res) labels
   where
     (lmap, _, pdc) = genParentsAndChildren labels
     res :: Label -> [Double]
-    res Label {loc_index = li, loc_evals = evs}
-      | ([], _) <- pdc IM.! li = [0.0]
-      | ((p : _), _) <- pdc IM.! li,
-        Just Label {loc_evals = p_evs} <- lmap IM.!? p =
-          mapMaybe (score evs p_evs) (IM.keys rel_tests)
-      | otherwise = [0.0]
+    res Label{loc_index = li, loc_evals = evs}
+        | ([], _) <- pdc IM.! li = [0.0]
+        | ((p : _), _) <- pdc IM.! li
+        , Just Label{loc_evals = p_evs} <- lmap IM.!? p =
+            mapMaybe (score evs p_evs) (IM.keys rel_tests)
+        | otherwise = [0.0]
       where
         score evs p_evs test_index =
-          do
-            e <- fromIntegral <$> evs IM.!? test_index
-            pe <- fromIntegral <$> p_evs IM.!? test_index
-            return (e / pe)
+            do
+                e <- fromIntegral <$> evs IM.!? test_index
+                pe <- fromIntegral <$> p_evs IM.!? test_index
+                return (e / pe)
 
 -- [2024-02-23]
--- | Calculates how many nodes up and down you have to go in the AST to find a
---   failure. I.e. first cousins would be 4, first cousin twice removed would
---   be 6 etc. Gives -1 if there is no path
+
+{- | Calculates how many nodes up and down you have to go in the AST to find a
+  failure. I.e. first cousins would be 4, first cousin twice removed would
+  be 6 etc. Gives -1 if there is no path
+-}
 rDistToFailure :: Rule
 rDistToFailure env rel_tests labels =
     if null failing_inds
-    then replicate (length labels) (fromIntegral (-1))
-    else map distToFailing labels
-  where (_, _, pmap) = genParentsAndChildren labels
+        then replicate (length labels) (fromIntegral (-1))
+        else map distToFailing labels
+  where
+    (_, _, pmap) = genParentsAndChildren labels
 
-        distToFailing :: Label -> Double
-        -- 4. For a label
-        distToFailing (Label {loc_index = li}) =
-            fromIntegral $
+    distToFailing :: Label -> Double
+    -- 4. For a label
+    distToFailing (Label{loc_index = li}) =
+        fromIntegral $
             -- If it is failing or a parent of a failing,
             -- it is trivial
             case dists_to_failing_parents IM.!? li of
@@ -620,101 +665,119 @@ rDistToFailure env rel_tests labels =
                     -- distances from this node to its
                     -- parents, and then get the distance
                     let parents = fst (pmap IM.! li)
-                    in case go (zip parents [1..]) of
-                        Just res ->  res
-                        _ -> (-1)
-        -- 3. For a list of parents and distances,
-        --    we calculate how far it is from a
-        --    failing location
-        go ((p,d):ps) =
-            case dists_to_failing_parents IM.!? p of
-              Just pd -> Just $ pd + d
-              Nothing -> go ps
-        go [] = Nothing
-        -- 2. For failing indices, we calculate
-        --    the distance of each of them to their parents
-        dists_to_failing_parents =
-            IM.unionsWith min $
-            map (\fi -> IM.fromList $
-                  (fi,0):zip (fst $ pmap IM.! fi) [1..])
-                  failing_inds
+                     in case go (zip parents [1 ..]) of
+                            Just res -> res
+                            _ -> (-1)
+    -- 3. For a list of parents and distances,
+    --    we calculate how far it is from a
+    --    failing location
+    go ((p, d) : ps) =
+        case dists_to_failing_parents IM.!? p of
+            Just pd -> Just $ pd + d
+            Nothing -> go ps
+    go [] = Nothing
+    -- 2. For failing indices, we calculate
+    --    the distance of each of them to their parents
+    dists_to_failing_parents =
+        IM.unionsWith min $
+            map
+                ( \fi ->
+                    IM.fromList $
+                        (fi, 0) : zip (fst $ pmap IM.! fi) [1 ..]
+                )
+                failing_inds
 
-        -- 1. We find the failing indices
-        failing_inds = mapMaybe has_failure labels
-        has_failure Label {..} = if (any (< 0) $ IM.elems loc_evals)
-                                  then Just loc_index
-                                  else Nothing
-
+    -- 1. We find the failing indices
+    failing_inds = mapMaybe has_failure labels
+    has_failure Label{..} =
+        if (any (< 0) $ IM.elems loc_evals)
+            then Just loc_index
+            else Nothing
 
 -- How many times is the identifier, if present, involved in a fault?
 rNumIdFails :: MetaRule
 rNumIdFails = rNumInfoRule "rTFail" selId (-1) (+)
-  where selId [_,x] = Just x
-        selId _ = Nothing
+  where
+    selId [_, x] = Just x
+    selId _ = Nothing
 
 -- | How many times is the type, if present, involved in a fault?
 rNumTypeFails :: MetaRule
 rNumTypeFails = rNumInfoRule "rTFail" selTy (-1) (+)
-  where selTy (x:_) = Just x
-        selTy _ = Nothing
+  where
+    selTy (x : _) = Just x
+    selTy _ = Nothing
 
 rNumSubTypeFails :: MetaRule
 rNumSubTypeFails rule_locs Env{..} locs =
-        map (\(fn,res) -> (fn, map upd res)) locs
-  where key = "rTFail"
-        key_loc = rule_locs Map.! key
-        failing_tys :: Set String
-        failing_tys =  Set.unions $
-                        concatMap (mapMaybe (get_ty . snd . fst)
-                            . filter isFailing . snd) locs
-        isFailing (_,vals) = vals L.!! key_loc > 0
-        get_ty (x:_) = case parseInfoType x of
-                          Right t ->
-                                Just $ Set.fromList
-                                     $ map showPsType $ flatTy t
-                          _ -> Nothing
-        get_ty [] = Nothing
-        flatTy = universeOf uniplate
+    map (\(fn, res) -> (fn, map upd res)) locs
+  where
+    key = "rTFail"
+    key_loc = rule_locs Map.! key
+    failing_tys :: Set String
+    failing_tys =
+        Set.unions $
+            concatMap
+                ( mapMaybe (get_ty . snd . fst)
+                    . filter isFailing
+                    . snd
+                )
+                locs
+    isFailing (_, vals) = vals L.!! key_loc > 0
+    get_ty (x : _) = case parseInfoType x of
+        Right t ->
+            Just $
+                Set.fromList $
+                    map showPsType $
+                        flatTy t
+        _ -> Nothing
+    get_ty [] = Nothing
+    flatTy = universeOf uniplate
 
-        upd :: ((String,[String]), [Double])
-            -> ((String,[String]), [Double])
-        upd ((l,inf), vals) =  ((l,inf), vals ++ [fromIntegral $ nv])
-#if __GLASGOW_HASKELL__ >= 902
-          where nv | (ty_str:_) <- inf,
-                     Right t <- parseInfoType ty_str,
-                     sub_tys <- map showPsType (flatTy t)
-                    = length $ filter (flip Set.member failing_tys) sub_tys
-                   | otherwise = -1
-#else
-          -- We cannot turn types back into string on GHC <= 9.2
-          where nv = -1
-#endif
+    upd ::
+        ((String, [String]), [Double]) ->
+        ((String, [String]), [Double])
+    upd ((l, inf), vals) = ((l, inf), vals ++ [fromIntegral $ nv])
+      where
+        nv
+            | (ty_str : _) <- inf
+            , Right t <- parseInfoType ty_str
+            , sub_tys <- map showPsType (flatTy t) =
+                length $ filter (flip Set.member failing_tys) sub_tys
+            | otherwise = -1
 
-
-
-
-rNumInfoRule :: String -> ([String] -> Maybe String)
-             -> Double -> (Double -> Double -> Double)
-             -> MetaRule
+rNumInfoRule ::
+    String ->
+    ([String] -> Maybe String) ->
+    Double ->
+    (Double -> Double -> Double) ->
+    MetaRule
 rNumInfoRule key sel no_val merge rule_locs _ results =
-        map (\(fn,res) -> (fn, map upd res)) results
-  where key_loc = rule_locs Map.! key
-        all_res = Map.unionsWith merge $ map (Map.fromListWith merge
-                                             . mapMaybe f . snd) results
-        f :: ((String,[String]), [Double]) -> Maybe (String, Double)
-        f ((_,info),vals) = case sel info of
-                            Just s -> Just (s, vals L.!! key_loc)
-                            _ -> Nothing
-        upd :: ((String,[String]), [Double])
-            -> ((String,[String]), [Double])
-        upd ((l,inf), vals) =  ((l,inf), vals ++ [nv])
-          where nv | Just x <- sel inf,
-                     Just v <- all_res Map.!? x = v
-                   | otherwise = no_val
-
-
-
-
+    map (\(fn, res) -> (fn, map upd res)) results
+  where
+    key_loc = rule_locs Map.! key
+    all_res =
+        Map.unionsWith merge $
+            map
+                ( Map.fromListWith merge
+                    . mapMaybe f
+                    . snd
+                )
+                results
+    f :: ((String, [String]), [Double]) -> Maybe (String, Double)
+    f ((_, info), vals) = case sel info of
+        Just s -> Just (s, vals L.!! key_loc)
+        _ -> Nothing
+    upd ::
+        ((String, [String]), [Double]) ->
+        ((String, [String]), [Double])
+    upd ((l, inf), vals) = ((l, inf), vals ++ [nv])
+      where
+        nv
+            | Just x <- sel inf
+            , Just v <- all_res Map.!? x =
+                v
+            | otherwise = no_val
 
 -- A meta rule. Computes in what quantile a given score for a given rule is.
 -- Note that the referenced rule must already exist.
@@ -727,9 +790,10 @@ rQuantile rule_name r_inds _ r = annotate 0 r
 
     ind_ws :: [IntSet]
     ind_ws =
-      map (IS.fromList . map fst) $
-        L.groupBy ((==) `on` snd) $
-          L.sortOn snd $ zip [0 ..] ws
+        map (IS.fromList . map fst) $
+            L.groupBy ((==) `on` snd) $
+                L.sortOn snd $
+                    zip [0 ..] ws
 
     fi = fromIntegral
     l_iws = fi $ length ind_ws
@@ -738,20 +802,20 @@ rQuantile rule_name r_inds _ r = annotate 0 r
       where
         Just g_i = L.findIndex (w_i `IS.member`) ind_ws
     annotate ::
-      Int ->
-      [(FilePath, [(a, [Double])])] ->
-      [(FilePath, [(a, [Double])])]
+        Int ->
+        [(FilePath, [(a, [Double])])] ->
+        [(FilePath, [(a, [Double])])]
     annotate _ [] = []
     annotate !n ((fp, m) : ms) = (fp, m') : (annotate n' ms)
       where
         (!n', !m') = annotate' n m
         annotate' ::
-          Int ->
-          [(a, [Double])] ->
-          (Int, [(a, [Double])])
+            Int ->
+            [(a, [Double])] ->
+            (Int, [(a, [Double])])
         annotate' !n [] = (n, [])
         annotate' !n ((s, ds) : ls) =
-          let (fn, ls') = annotate' (n + 1) ls
-              -- Could be optimized, but we only do it once!
-              ds' = ds ++ [quantile n]
-           in (fn, (s, ds') : ls')
+            let (fn, ls') = annotate' (n + 1) ls
+                -- Could be optimized, but we only do it once!
+                ds' = ds ++ [quantile n]
+             in (fn, (s, ds') : ls')

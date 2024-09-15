@@ -65,7 +65,7 @@ getTypeLHsExpr e = do hsc_env <- getTopEnv
           unwrapVar e'               = e'
 
 
-#endif 
+#endif
 
 -- From GHCi.Info
 getTypeLPat :: LPat GhcTc -> TcM [(Maybe Id, SrcSpan,Type)]
