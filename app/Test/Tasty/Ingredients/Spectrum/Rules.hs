@@ -1,8 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -Wno-missing-fields #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Move brackets to avoid $" #-}
+{-# HLINT ignore "Use second" #-}
 
 module Test.Tasty.Ingredients.Spectrum.Rules where
 
@@ -22,7 +25,6 @@ import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Tree
-import Data.Tree (drawForest)
 import Test.Tasty.Ingredients.Spectrum.GenForest
 import Test.Tasty.Ingredients.Spectrum.Parse
 import Test.Tasty.Ingredients.Spectrum.Types
@@ -443,21 +445,21 @@ rTypeSubTypes = analyzeType (fromIntegral . length . flatTy)
 rTypeOrder :: Rule
 rTypeOrder = analyzeType (fromIntegral . length . filter isHsAppTy . flatTy)
   where
-    isHsAppTy d = toConstr d == (toConstr (HsAppTy{} :: HsType GhcPs))
+    isHsAppTy d = toConstr d == toConstr (HsAppTy{} :: HsType GhcPs)
     flatTy = universeOf uniplate
 
 -- | Number of arguments that are parenthesizedx
 rTypeFunArgs :: Rule
 rTypeFunArgs = analyzeType (fromIntegral . length . filter isHsParTy . flatTy)
   where
-    isHsParTy d = toConstr d == (toConstr (HsParTy{} :: HsType GhcPs))
+    isHsParTy d = toConstr d == toConstr (HsParTy{} :: HsType GhcPs)
     flatTy = universeOf uniplate
 
 -- | Gets the number of constraints a type has.
 rTypeConstraints :: Rule
 rTypeConstraints = analyzeType (fromIntegral . sum . map ctxtLength . flatTy)
   where
-    isHsAppTy d = toConstr d == (toConstr (HsAppTy{} :: HsType GhcPs))
+    isHsAppTy d = toConstr d == toConstr (HsAppTy{} :: HsType GhcPs)
     flatTy = universeOf uniplate
     ctxtLength :: HsType GhcPs -> Int
 
@@ -469,7 +471,7 @@ rTypeConstraints = analyzeType (fromIntegral . sum . map ctxtLength . flatTy)
 rTypeArrows :: Rule
 rTypeArrows = analyzeType (fromIntegral . length . filter isHsFunTy . flatTy)
   where
-    isHsFunTy d = toConstr d == (toConstr (HsFunTy{} :: HsType GhcPs))
+    isHsFunTy d = toConstr d == toConstr (HsFunTy{} :: HsType GhcPs)
     flatTy = universeOf uniplate
 
 -- | Gives the function arity for simple types
@@ -479,7 +481,7 @@ rTypeArity = analyzeType (fromIntegral . firstNonZero . map countArgs . flatTy)
     countArgs :: HsType GhcPs -> Int
 
     countArgs (HsFunTy _ _ _ y) =
-        1 + (countArgs $ unLoc y)
+        1 + countArgs (unLoc y)
     countArgs (HsParTy _ ty) = 1 + (countArgs $ unLoc ty)
     countArgs _ = 0
     -- We don't do more complex than that.
@@ -494,7 +496,7 @@ rTypeArity = analyzeType (fromIntegral . firstNonZero . map countArgs . flatTy)
 rTypePrimitives :: Rule
 rTypePrimitives = analyzeType (fromIntegral . length . filter isHsTyVar . flatTy)
   where
-    isHsTyVar d = toConstr d == (toConstr (HsTyVar{} :: HsType GhcPs))
+    isHsTyVar d = toConstr d == toConstr (HsTyVar{} :: HsType GhcPs)
     flatTy = universeOf uniplate
 
 {- | The (global) tarantula score of this expression
@@ -503,7 +505,7 @@ Global refers to "per-spectrum" instead of the "per-module" values of other rule
 rTarantula :: Rule
 rTarantula Env{..} _ = map ttula
   where
-    tp = fromIntegral $ total_succesful_tests
+    tp = fromIntegral total_succesful_tests
     tf = fromIntegral $ total_tests - total_succesful_tests
     ttula :: Label -> Double
     ttula Label{..} = ftf / (ptp + ftf)
@@ -564,7 +566,7 @@ rHamming Env{..} _ = map hamming
     hamming Label{..} = fromIntegral (f + total_succesful_tests - p)
       where
         f = length (filter (< 0) $ IM.elems loc_evals)
-        p = (IM.size loc_evals) - f
+        p = IM.size loc_evals - f
 
 -- | "Optimal" SBFL as proposed by "A Model for Spectra-based Software Diagnosis".
 rOptimal :: Rule
@@ -589,7 +591,7 @@ rOptimalP Env{..} _ = map optimalP
   where
     optimalP :: Label -> Double
     -- "OptimalP" is "number of executed failing tests", minus ("number of passing tests" divided by "number of total tests + 1)
-    optimalP Label{..} = fc - (pc / (fromIntegral total_tests))
+    optimalP Label{..} = fc - (pc / fromIntegral total_tests)
       where
         fc = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
         pc = fromIntegral (IM.size loc_evals) - fc
@@ -627,7 +629,7 @@ rTFailFreqDiffParent _ rel_tests labels = map (sum . res) labels
     res :: Label -> [Double]
     res Label{loc_index = li, loc_evals = evs}
         | ([], _) <- pdc IM.! li = [0.0]
-        | ((p : _), _) <- pdc IM.! li
+        | (p : _, _) <- pdc IM.! li
         , Just Label{loc_evals = p_evs} <- lmap IM.!? p =
             mapMaybe (score evs p_evs) (IM.keys rel_tests)
         | otherwise = [0.0]
@@ -690,7 +692,7 @@ rDistToFailure env rel_tests labels =
     -- 1. We find the failing indices
     failing_inds = mapMaybe has_failure labels
     has_failure Label{..} =
-        if (any (< 0) $ IM.elems loc_evals)
+        if any (< 0) $ IM.elems loc_evals
             then Just loc_index
             else Nothing
 
@@ -737,13 +739,13 @@ rNumSubTypeFails rule_locs Env{..} locs =
     upd ::
         ((String, [String]), [Double]) ->
         ((String, [String]), [Double])
-    upd ((l, inf), vals) = ((l, inf), vals ++ [fromIntegral $ nv])
+    upd ((l, inf), vals) = ((l, inf), vals ++ [fromIntegral nv])
       where
         nv
             | (ty_str : _) <- inf
             , Right t <- parseInfoType ty_str
             , sub_tys <- map showPsType (flatTy t) =
-                length $ filter (flip Set.member failing_tys) sub_tys
+                length $ filter (`Set.member` failing_tys) sub_tys
             | otherwise = -1
 
 rNumInfoRule ::
@@ -806,7 +808,7 @@ rQuantile rule_name r_inds _ r = annotate 0 r
         [(FilePath, [(a, [Double])])] ->
         [(FilePath, [(a, [Double])])]
     annotate _ [] = []
-    annotate !n ((fp, m) : ms) = (fp, m') : (annotate n' ms)
+    annotate !n ((fp, m) : ms) = (fp, m') : annotate n' ms
       where
         (!n', !m') = annotate' n m
         annotate' ::
