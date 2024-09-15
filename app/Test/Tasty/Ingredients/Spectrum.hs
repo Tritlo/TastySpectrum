@@ -340,9 +340,9 @@ checkTastyTree timeout test =
         loop s = do
             res <- atomically $ do
                 status <- readTVar status_var
-                case status of
-                    TR.Done res -> return $ Just (TR.resultSuccessful res)
-                    _ -> return Nothing
+                return $ case status of
+                    TR.Done res -> Just (TR.resultSuccessful res)
+                    _ -> Nothing
             case res of
                 Just r -> return r
                 Nothing -> do
