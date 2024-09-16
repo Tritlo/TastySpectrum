@@ -758,7 +758,7 @@ rOptimalP Env{..} _ = map optimalP
   where
     optimalP :: Label -> Double
     -- "OptimalP" is "number of executed failing tests", minus ("number of passing tests" divided by "number of total tests + 1)
-    optimalP Label{..} = fc - (pc / fromIntegral total_tests)
+    optimalP Label{..} = fc - (pc / fromIntegral (total_tests + 1))
       where
         fc = fromIntegral $ length (filter (< 0) $ IM.elems loc_evals)
         pc = fromIntegral (IM.size loc_evals) - fc
