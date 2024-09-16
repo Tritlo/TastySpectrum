@@ -6,9 +6,11 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Redundant bracket" #-}
+{-# LANGUAGE RecordWildCards #-}
 module Test.Tasty.Ingredients.Spectrum.ParseCSV where
 
 import Test.Tasty.Ingredients.Spectrum.Types
+import Test.Tasty.Ingredients.Spectrum.Rules (allRuleNames)
 
 import Data.List (group, groupBy, intercalate, sort, sortBy, transpose)
 import Data.Maybe (mapMaybe)
@@ -27,6 +29,7 @@ import Data.Semigroup ((<>))
 
 import Control.DeepSeq (deepseq)
 import Debug.Trace (traceShowId)
+import Control.Monad (forM_)
 
 parseHeader :: T.Text -> [(String, (Int, Int, Int, Int))]
 parseHeader !h = case T.stripPrefix "test_name,test_type,test_result," h of
@@ -119,7 +122,7 @@ printSpectrum (tests, fns, mods) =
       where
         fn = fns IM.! i
     tot :: Int -> [[String]] -> T.Text
-    tot i lns = T.intercalate (T.pack ",") $ map (T.pack . show ) lns
+    tot i lns = T.intercalate (T.pack ",") $ map (T.pack . show) lns
     printTest :: Int -> ((String, String), Bool, IntSet) -> IO ()
     printTest t_id ((t_name, t_type), t_res, _) =
         do
@@ -130,7 +133,7 @@ printSpectrum (tests, fns, mods) =
 
     test_r :: [IntMap Integer]
     test_r = map snd $ concatMap snd lines
-    lines :: [(Int, [((Int, Int, Int,Int), IntMap Integer)])]
+    lines :: [(Int, [((Int, Int, Int, Int), IntMap Integer)])]
     lines = map toLines' $ IM.elems mods
     tys :: [(Int, [[String]])]
     tys = map toTys' $ IM.elems mods
@@ -294,3 +297,45 @@ parseCSV target_file = do
                     [0 ..]
                     grouped_loc_index
     return (test_results, loc_groups, labeled)
+
+-- Print a spectrum back
+printFormulaResults :: IntMap String -> [ModResult] -> IO ()
+printFormulaResults loc_groups mrs =
+    do
+        TIO.putStr "location,"
+        TIO.putStrLn header_info
+        mapM_ (\MR{..} -> printResult r_loc_group r_result) mrs
+  where
+    classicFormulas :: [String]
+    classicFormulas =
+        [ "rJaccard"
+        , "rHamming"
+        , "rOptimal"
+        , "rOptimalP"
+        , "rTarantula"
+        , "rOchiai"
+        , "rDStar2"
+        , "rDStar3"
+        , "rRogot1"
+        ]
+    fInds :: Map.Map String Int
+    fInds = Map.fromList (zip allRuleNames [0 :: Int ..])
+    header_info :: T.Text
+    header_info = T.intercalate (T.pack ",") $ fmap T.pack classicFormulas
+
+    tol :: Int -> [(Int, Int, Int, Int)] -> T.Text
+    tol i lns =
+        T.intercalate (T.pack ",") $
+            map (\t -> T.pack $ show $ fn ++ ":" ++ show (toHpcPos t)) lns
+      where
+        fn = loc_groups IM.! i
+
+    printResult :: Int -> [((Int,(Int, Int, Int, Int), [String]),[Double])] -> IO ()
+    printResult r_loc_group r_results =
+        forM_ r_results $ \ ((_,loc,_), vals) -> do
+            let results = map (\f_nm -> vals !! (fInds Map.! f_nm)) classicFormulas
+            TIO.putStr $ T.pack $ show (fn ++ ":" ++ show (toHpcPos loc)) ++ ","
+            TIO.putStrLn $ T.intercalate (T.pack ",") $ map (T.pack . show) results
+      where
+        fn = loc_groups IM.! r_loc_group
+

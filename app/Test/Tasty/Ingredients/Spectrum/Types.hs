@@ -7,6 +7,7 @@ module Test.Tasty.Ingredients.Spectrum.Types (
     Label (..),
     emptyLabel,
     Spectrum,
+    ModResult(..),
     pprLabel,
     pprLabelOnly,
     module Trace.Hpc.Util,
@@ -101,3 +102,18 @@ type Spectrum =
       IntMap [Label]
       --  ^ The resulting labels and how often they have been executed. The labels also carry the test-status in their loc_evals (see above). Grouped by modules.
     )
+
+-- | The result of running the formulas
+data ModResult
+    = MR
+    { r_loc_group :: Int -- The module this result applies to
+    , r_result ::
+        [ ( ( Int
+            , (Int, Int, Int, Int) -- Position
+            , [String] -- "Info (type)"
+            )
+          , [Double] -- Result for each rule
+          )
+        ]
+    }
+    deriving (Generic, NFData)

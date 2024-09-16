@@ -8,7 +8,6 @@ module Test.Tasty.Ingredients.Spectrum.GenForest (
     leafDistanceList,
 ) where
 
-import Test.Tasty.Ingredients.Spectrum.ParseCSV
 import Test.Tasty.Ingredients.Spectrum.Types
 
 import Data.Function (on)

@@ -42,6 +42,7 @@ data Command
     | Ochiai
     | DStar Integer
     | MergeLines
+    | FormulaResults
     | Filter String
     deriving (Show, Eq)
 
@@ -56,6 +57,7 @@ config =
                 <> tarantulaCommand
                 <> ochiaiCommand
                 <> dstarCommand
+                <> formulaResultsCommand
                 <> mergeCommand
                 <> filterCommand
             )
@@ -72,6 +74,8 @@ config =
     treeCommand = command "tree" (info (pure Tree) (progDesc "Show a tree of the results"))
     mergeCommand :: Mod CommandFields Command
     mergeCommand = command "merge" (info (pure MergeLines) (progDesc "Merge expressions in the same line in the CSV"))
+    formulaResultsCommand :: Mod CommandFields Command
+    formulaResultsCommand = command "formula-results" (info (pure FormulaResults) (progDesc "Output the results of the classic formulas as CSV"))
     rulesCommand :: Mod CommandFields Command
     rulesCommand = command "rules" (info (pure Rules) (progDesc "Use the rules"))
     tarantulaCommand :: Mod CommandFields Command
@@ -137,7 +141,9 @@ main = do
                     let (_, mr) = applyRules validate_types tr'
                         fexpr = read expr
                     printSpectrum $ compileFilterExpr fexpr mr tr'
-
+                FormulaResults -> do
+                    let (_, mr) = applyRules validate_types tr'
+                    printFormulaResults loc_groups mr
                 alg ->
                     let sf = case alg of
                             Tarantula -> tarantula

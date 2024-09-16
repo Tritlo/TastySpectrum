@@ -101,19 +101,6 @@ metaRules =
 allRuleNames :: [String]
 allRuleNames = map fst allRules ++ map fst metaRules
 
-data ModResult
-    = MR
-    { r_loc_group :: Int -- The module this result applies to
-    , r_result ::
-        [ ( ( Int
-            , (Int, Int, Int, Int) -- Position
-            , [String] -- "Info (type)"
-            )
-          , [Double] -- Result for each rule
-          )
-        ]
-    }
-    deriving (Generic, NFData)
 
 data FilterVar = FVar String -- name of a rule result
 instance Show FilterVar where
