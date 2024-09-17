@@ -34,6 +34,7 @@ import Test.Tasty.Ingredients.Spectrum.Types
 
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Lazy as BSL
+import Data.Char as Char
 
 import GHC
 
@@ -169,10 +170,11 @@ parseFilterExpr = RP.choice [pand, por, pc, pnot]
         return (FNot e1)
     pc = do
         rule <- RP.choice (map RP.string allRuleNames)
+                 RP.<++ errMsg (\rule -> "parseError: invalid rule name '" <> rule <>"'")
         RP.char ' '
-        op <- pop
+        op <- pop RP.<++ errMsg (\op -> "parseError: invalid operator '" <> op <> "'")
         char ' '
-        tr <- RP.readS_to_P reads
+        tr <- RP.readS_to_P reads RP.<++ errMsg (\dstr -> "parseError: invalid double '"<>dstr<>"'")
         return (FEComp (FComp (FVar rule) op tr))
     pop =
         RP.choice
@@ -182,6 +184,7 @@ parseFilterExpr = RP.choice [pand, por, pc, pnot]
             , string "<" >> return FLt
             , string "==" >> return FEq
             ]
+    errMsg msgFun = RP.munch (not . Char.isSpace) >>= (error . msgFun )
 
 compileFilterExpr :: FilterExpr -> [ModResult] -> Spectrum -> Spectrum
 compileFilterExpr fexpr =
