@@ -57,7 +57,46 @@ library
     -- Base language which the package is written in.
     default-language: Haskell2010
     exposed-modules: Test.Tasty.Ingredients.Spectrum,
-                     Test.Tasty.Ingredients.Spectrum.GenForest,
+--                    Test.Tasty.Ingredients.Spectrum.GenForest,
+--                    Test.Tasty.Ingredients.Spectrum.Types,
+--                    Test.Tasty.Ingredients.Spectrum.ParseCSV,
+--                    Test.Tasty.Ingredients.Spectrum.Parse,
+--                    Test.Tasty.Ingredients.Spectrum.SBFL,
+--                    Test.Tasty.Ingredients.Spectrum.Rules,
+--                    Test.Tasty.Ingredients.Spectrum.Weights
+
+    reexported-modules: Test.Tasty.Ingredients.Spectrum.Plugin
+    ghc-options: -O2
+    hs-source-dirs: app/
+    build-depends:    base >=4 && < 5,
+                      tasty >= 1.4 && < 1.5,
+                      containers,
+                      tagged,
+                      stm,
+                      hpc,
+                      optparse-applicative,
+                      text,
+                      ghc,
+                      array,
+                      parallel,
+                      mwc-random,
+                      ad,
+                      vector,
+                      ghc-prim,
+                      deepseq,
+                      filepath,
+                      directory,
+                      time,
+                      lens,
+                      tasty-spectrum-plugin,
+                      aeson,
+                      bytestring,
+                      ghc-boot
+
+library tasty-spectrum-processing
+    -- Base language which the package is written in.
+    default-language: Haskell2010
+    exposed-modules: Test.Tasty.Ingredients.Spectrum.GenForest,
                      Test.Tasty.Ingredients.Spectrum.Types,
                      Test.Tasty.Ingredients.Spectrum.ParseCSV,
                      Test.Tasty.Ingredients.Spectrum.Parse,
@@ -101,7 +140,9 @@ executable tasty-sbfl
                  hpc >= 0.6 && < 0.8,
                  containers >= 0.6 && < 0.7,
                  optparse-applicative >= 0.18 && < 0.19,
-                 tasty-spectrum
+                 tasty-spectrum,
+                 tasty-spectrum-processing
+
 
 
 test-suite tasty-spectrum-tests
@@ -132,7 +173,8 @@ test-suite tasty-spectrum-tests
                       tasty-quickcheck >= 0.9 && < 0.11,
                       tasty-hunit >= 0.9 && < 0.11,
                       tasty-spectrum,
-                      containers
+                      containers,
+                      tasty-spectrum-processing
 
 
 test-suite tasty-spectrum-example
