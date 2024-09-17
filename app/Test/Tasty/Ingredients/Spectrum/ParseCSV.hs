@@ -134,17 +134,19 @@ printSpectrum (tests, fns, mods) =
     test_r :: [IntMap Integer]
     test_r = map snd $ concatMap snd lines
     lines :: [(Int, [((Int, Int, Int, Int), IntMap Integer)])]
-    lines = map toLines' $ IM.elems mods
+    lines = mapMaybe toLines' $ IM.elems mods
     tys :: [(Int, [[String]])]
-    tys = map toTys' $ IM.elems mods
-    toLines' :: [Label] -> (Int, [((Int, Int, Int, Int), IntMap Integer)])
-    toLines' lbls@(l : _) = (loc_group l, fls)
+    tys = mapMaybe toTys' $ IM.elems mods
+    toLines' :: [Label] -> Maybe (Int, [((Int, Int, Int, Int), IntMap Integer)])
+    toLines' lbls@(l : _) = Just (loc_group l, fls)
       where
         f l = (loc_pos l, loc_evals l)
         fls :: [((Int, Int, Int, Int), IntMap Integer)]
         fls = map f lbls
-    toTys' :: [Label] -> (Int, [[String]])
-    toTys' lbls@(l : _) = (loc_group l, map loc_info lbls)
+    toLines' _ = Nothing
+    toTys' :: [Label] -> Maybe (Int, [[String]])
+    toTys' lbls@(l : _) = Just (loc_group l, map loc_info lbls)
+    toTys' _ = Nothing
 
 -- Compresses a spectrum to the line level
 mergeLines :: Spectrum -> IO ()
