@@ -39,7 +39,14 @@ import GHC
 
 import Control.Monad (when)
 import GHC.Generics (Generic)
+
+#if __GLASGOW_HASKELL__ >= 900
 import GHC.Hs.Type
+#elif __GLASGOW_HASKELL__ >= 810
+import GHC.Hs.Types
+#else
+import HsTypes
+#endif
 
 import Text.ParserCombinators.ReadP as RP
 
@@ -101,7 +108,6 @@ metaRules =
 allRuleNames :: [String]
 allRuleNames = map fst allRules ++ map fst metaRules
 
-
 data FilterVar = FVar String -- name of a rule result
 instance Show FilterVar where
     show (FVar s) = s
@@ -136,9 +142,8 @@ instance Show FilterExpr where
     show (FEComp e1) =
         show e1
 
-
 instance Read FilterExpr where
-  readsPrec _ = RP.readP_to_S parseFilterExpr
+    readsPrec _ = RP.readP_to_S parseFilterExpr
 
 parseFilterExpr :: RP.ReadP FilterExpr
 parseFilterExpr = RP.choice [pand, por, pc, pnot]
@@ -616,8 +621,11 @@ rTypeConstraints = analyzeType (fromIntegral . sum . map ctxtLength . flatTy)
     isHsAppTy d = toConstr d == toConstr (HsAppTy{} :: HsType GhcPs)
     flatTy = universeOf uniplate
     ctxtLength :: HsType GhcPs -> Int
-
-    ctxtLength (HsQualTy{hst_ctxt = ctxt}) = length (unLoc ctxt)
+#if __GLASGOW_HASKELL__ == 902
+    ctxtLength (HsQualTy {hst_ctxt= Just ctxt}) = length (unLoc ctxt)
+#else
+    ctxtLength (HsQualTy {hst_ctxt=ctxt}) = length (unLoc ctxt)
+#endif
     ctxtLength _ = 0
 
 -- How many arrows are there? Note this is not exactly the arity,
@@ -633,9 +641,14 @@ rTypeArity :: Rule
 rTypeArity = analyzeType (fromIntegral . firstNonZero . map countArgs . flatTy)
   where
     countArgs :: HsType GhcPs -> Int
-
-    countArgs (HsFunTy _ _ _ y) =
-        1 + countArgs (unLoc y)
+#if __GLASGOW_HASKELL__ >= 900
+    countArgs (HsFunTy _ _ _ y)
+#elif __GLASGOW_HASKELL__ == 902
+    countArgs (HsFunTy _ _ y)
+#else
+    countArgs (HsFunTy _ _ y)
+#endif
+        = 1 + countArgs (unLoc y)
     countArgs (HsParTy _ ty) = 1 + (countArgs $ unLoc ty)
     countArgs _ = 0
     -- We don't do more complex than that.
