@@ -34,6 +34,7 @@ import Test.Tasty.Ingredients.Spectrum.Types
 
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Lazy as BSL
+import Data.Char as Char
 
 import GHC
 
@@ -146,33 +147,56 @@ instance Read FilterExpr where
     readsPrec _ = RP.readP_to_S parseFilterExpr
 
 parseFilterExpr :: RP.ReadP FilterExpr
-parseFilterExpr = RP.choice [pand, por, pc, pnot]
+parseFilterExpr = RP.choice [ppar, pand, por, pc, pnot]
   where
-    pand = do
+    ppar = do
+        RP.skipSpaces
         RP.char '('
+        RP.skipSpaces
         e1 <- parseFilterExpr
+        RP.skipSpaces
+        RP.char ')'
+        return e1
+    pand = do
+        RP.skipSpaces
+        RP.char '('
+        RP.skipSpaces
+        e1 <- parseFilterExpr
+        RP.skipSpaces
         RP.string ") && ("
+        RP.skipSpaces
         e2 <- parseFilterExpr
+        RP.skipSpaces
         char ')'
         return (FAnd e1 e2)
     por = do
+        RP.skipSpaces
         RP.char '('
+        RP.skipSpaces
         e1 <- parseFilterExpr
+        RP.skipSpaces
         RP.string ") || ("
+        RP.skipSpaces
         e2 <- parseFilterExpr
+        RP.skipSpaces
         RP.char ')'
         return (FOr e1 e2)
     pnot = do
+        RP.skipSpaces
         RP.string "not ("
+        RP.skipSpaces
         e1 <- parseFilterExpr
+        RP.skipSpaces
         RP.char ')'
         return (FNot e1)
     pc = do
+        RP.skipSpaces
         rule <- RP.choice (map RP.string allRuleNames)
-        RP.char ' '
-        op <- pop
-        char ' '
-        tr <- RP.readS_to_P reads
+                 --RP.<++ errMsg (\rule -> "parseError: invalid rule name '" <> rule <>"'")
+        RP.skipSpaces
+        op <- pop  --RP.<++ errMsg (\op -> "parseError: invalid operator '" <> op <> "'")
+        RP.skipSpaces
+        tr <- RP.readS_to_P reads --RP.<++ errMsg (\dstr -> "parseError: invalid double '"<>dstr<>"'")
         return (FEComp (FComp (FVar rule) op tr))
     pop =
         RP.choice
@@ -182,6 +206,7 @@ parseFilterExpr = RP.choice [pand, por, pc, pnot]
             , string "<" >> return FLt
             , string "==" >> return FEq
             ]
+    errMsg msgFun = RP.munch (not . Char.isSpace) >>= (error . msgFun )
 
 compileFilterExpr :: FilterExpr -> [ModResult] -> Spectrum -> Spectrum
 compileFilterExpr fexpr =
