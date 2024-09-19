@@ -218,85 +218,89 @@ parseTypes !ts = case T.stripPrefix "-,-,-," ts of
 
 parseCSV :: FilePath -> IO Spectrum
 parseCSV target_file = do
-    (h : ts : rs) <- T.lines <$> TIO.readFile target_file
-    let
-        -- the labels are already in order per group
-        locs_no_types = parseHeader h
-        loc_info = parseTypes ts
-        parsed_locs = zipWith (\(m, l) !t -> (m, (l, t))) locs_no_types loc_info
-        grouped_locs = groupBy ((==) `on` fst) parsed_locs
+    tf_lines <- T.lines <$> TIO.readFile target_file
+    case tf_lines of
+       (h : ts : rs) -> do
+        let
+            -- the labels are already in order per group
+            locs_no_types = parseHeader h
+            loc_info = parseTypes ts
+            parsed_locs = zipWith (\(m, l) !t -> (m, (l, t))) locs_no_types loc_info
+            grouped_locs = groupBy ((==) `on` fst) parsed_locs
 
-        loc_groups =
-            IM.fromAscList $
-                zipWith
-                    (\i g -> (i, fst $ head g))
-                    [0 ..]
-                    grouped_locs
+            loc_groups =
+                IM.fromAscList $
+                    zipWith
+                        (\i g -> (i, fst $ head g))
+                        [0 ..]
+                        grouped_locs
 
-        keepNonZero :: [Integer] -> IntMap Integer
-        keepNonZero = IM.fromAscList . filter ((/= 0) . snd) . zip [0 ..]
+            keepNonZero :: [Integer] -> IntMap Integer
+            keepNonZero = IM.fromAscList . filter ((/= 0) . snd) . zip [0 ..]
 
-        eval_results :: [((String, String), Bool, IntMap Integer)]
-        eval_results =
-            map
-                ( ( \(n, r, e) ->
-                        ( n
-                        , r
-                        , let knz = keepNonZero e
-                           in if r
-                                then knz
-                                else negate <$> knz
-                        )
-                  )
-                    . parseEntry
-                )
-                rs
-        test_results = map (\(n, r, es) -> (n, r, IM.keysSet es)) eval_results
-
-        involved loc_i =
-            mapMaybe
-                ( \(i, (_, r, im)) ->
-                    (i,)
-                        <$> IM.lookup loc_i im
-                )
-                $ zip [0 ..] eval_results
-
-    -- [2023-12-31] If we want to see it as it is parsed:
-    -- mapM_ (print . (\((s,s2),r,im) -> ((s,s2), r,
-    --                                   IM.size im,
-    --                                   sum $ IM.elems im))) eval_results
-
-    -- When there are multiple modules, we need to make sure that we
-    -- assign a unique index *globally* and not just within the module.
-    -- Otherwise the "involved" call will be wrong!
-    let grouped_loc_index :: [[(Int, (String, ((Int, Int, Int, Int), [String])))]]
-        grouped_loc_index = gli 0 grouped_locs
-          where
-            gli !i [] = []
-            gli !i (xs : ys) = xs' : gli i' ys
-              where
-                xs' = gli_1 i xs
-                i' = i + length xs'
-                gli_1 !i (l : ls) = (i, l) : (gli_1 (i + 1) ls)
-                gli_1 !i [] = []
-
-        labeled =
-            IM.fromList $
-                zipWith
-                    ( \group_i locs ->
-                        (group_i,) $
-                            filter (\(Label _ _ _ _ v) -> not $ IM.null v) $
-                                map
-                                    ( \(loc_i, (s, (l, t))) ->
-                                        Label group_i l loc_i t $
-                                            IM.fromAscList $
-                                                involved loc_i
-                                    )
-                                    locs
+            eval_results :: [((String, String), Bool, IntMap Integer)]
+            eval_results =
+                map
+                    ( ( \(n, r, e) ->
+                            ( n
+                            , r
+                            , let knz = keepNonZero e
+                               in if r
+                                    then knz
+                                    else negate <$> knz
+                            )
+                      )
+                        . parseEntry
                     )
-                    [0 ..]
-                    grouped_loc_index
-    return (test_results, loc_groups, labeled)
+                    rs
+            test_results = map (\(n, r, es) -> (n, r, IM.keysSet es)) eval_results
+
+            involved loc_i =
+                mapMaybe
+                    ( \(i, (_, r, im)) ->
+                        (i,)
+                            <$> IM.lookup loc_i im
+                    )
+                    $ zip [0 ..] eval_results
+
+        -- [2023-12-31] If we want to see it as it is parsed:
+        -- mapM_ (print . (\((s,s2),r,im) -> ((s,s2), r,
+        --                                   IM.size im,
+        --                                   sum $ IM.elems im))) eval_results
+
+        -- When there are multiple modules, we need to make sure that we
+        -- assign a unique index *globally* and not just within the module.
+        -- Otherwise the "involved" call will be wrong!
+        let grouped_loc_index :: [[(Int, (String, ((Int, Int, Int, Int), [String])))]]
+            grouped_loc_index = gli 0 grouped_locs
+              where
+                gli !i [] = []
+                gli !i (xs : ys) = xs' : gli i' ys
+                  where
+                    xs' = gli_1 i xs
+                    i' = i + length xs'
+                    gli_1 !i (l : ls) = (i, l) : (gli_1 (i + 1) ls)
+                    gli_1 !i [] = []
+
+            labeled =
+                IM.fromList $
+                    zipWith
+                        ( \group_i locs ->
+                            (group_i,) $
+                                filter (\(Label _ _ _ _ v) -> not $ IM.null v) $
+                                    map
+                                        ( \(loc_i, (s, (l, t))) ->
+                                            Label group_i l loc_i t $
+                                                IM.fromAscList $
+                                                    involved loc_i
+                                        )
+                                        locs
+                        )
+                        [0 ..]
+                        grouped_loc_index
+        return (test_results, loc_groups, labeled)
+       _ -> error $ "parseCSV: expected header, types, and test lines, but got only "
+                    <> show (length tf_lines) <> " lines"
 
 -- Print a spectrum back
 printFormulaResults :: IntMap String -> [ModResult] -> IO ()
