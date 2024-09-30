@@ -3,4 +3,5 @@ module Main where
 import Ex
 
 main :: IO ()
-main = mapM_ (print . divs) [10,100,128,819,693]
+main = do mapM_ (print . divs) [4, 10,100,128,819,693]
+          print $ smallestDiv 4
