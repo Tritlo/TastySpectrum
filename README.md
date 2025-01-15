@@ -9,7 +9,7 @@ Please keep this in mind and only run it on-demand if you are in need of a spect
 
 **Requirements** (used by us)
 
-- GHC  8.10.7
+- GHC  9.6+
 - Cabal 3.10.1.0
 - Linux or WSL 
 
